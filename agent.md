@@ -8,7 +8,8 @@ Nexflow is an internal tracking portal for a small Direct Selling Agent (DSA) bu
 
 - Internal staff only. No customer accounts or portals.
 - One business. Not a multi-tenant SaaS.
-- Web and mobile clients on one backend and one database.
+- A web app for the first version, designed to work well on phone browsers. A native mobile app is a later phase.
+- One backend and one database. Any later client calls the same API.
 
 Confirmed business decisions are in `docs/00-decisions.md`. That file is the source of truth for scope. Background context in older notes is not binding.
 
@@ -49,8 +50,8 @@ nexflow/
 │       └── plans/            # implementation plans (dated)
 ├── backend/                  # API, business rules, database migrations, tests
 │   └── modules/              # one folder per domain area (see below)
-├── web/                      # web app for managers and employees
-├── mobile/                   # mobile app for employees
+├── web/                      # web app for managers and employees (phone-friendly)
+├── mobile/                   # native mobile app (later phase, not started)
 ├── infra/                    # deployment, containers, CI configuration (no secrets)
 └── .env.example              # variable names only
 ```

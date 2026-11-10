@@ -7,7 +7,7 @@ Items marked **Open** are not decided and must not be assumed.
 
 - Internal tracking portal for a Direct Selling Agent (DSA) business that helps customers get home loans from banks.
 - Staff enter and track information. The system does not collect data from customers and has no customer login.
-- Web and mobile. Both use the same backend and rules.
+- Web app first (phone-friendly). A native mobile app comes later. Any later client uses the same backend and rules.
 
 ## 2. Workflow stages (generic for now)
 
@@ -35,7 +35,7 @@ Stages are shown in order:
 
 ## 4. Tracking data (after "Logged in")
 
-- Tracking number. Generated when the case reaches "Logged in" (see Open question O1).
+- Tracking number = the bank's loan application number. Entered by staff when the case reaches "Logged in". The system does not generate it. No separate internal case number is needed.
 
 ## 5. Data entry style
 
@@ -80,19 +80,38 @@ Each stage keeps its own date so that reports can use milestone dates.
 - Admin and manager are separate roles. Both can delete leads. Admin has full rights. Manager does not change bank setup.
 - A lead that already has cases cannot be deleted, so no case is lost by accident.
 
+## 10a. Decisions from round 2 (2026-11-10)
+
+- **Duplicates:** when a new lead has a mobile number that already exists, warn the user and link the lead to the existing customer. Do not create a duplicate customer record.
+- **Dropped instead of delete:** abandoned leads and cases are moved to a **Dropped** status with a reason. Staff never delete them. Admin and manager can hard-delete leads and cases (confirmed).
+- **Dropped reason:** chosen from an admin-maintained dropdown, with an optional remark.
+- **Dashboard (first version):** leads received today; cases by stage; sanctions and disbursements for a period; sanctioned and disbursed amounts for a period.
+- **Notifications:** follow-up reminders and alerts are deferred. Channel not decided: WhatsApp or email over SMTP.
+- **Alert cost check (researched, third-party figures, verify before budgeting):** SMTP via Amazon SES is about $0.10 per 1,000 emails. Brevo paid plans start at about $9/month. WhatsApp costs about ₹0.1 to ₹0.9 per message in India, depending on type and provider markup. Meta's rate card is authoritative. Channel still open.
+- **Reporting dates:** "leads received today" uses the date the lead was created. Staff must register each new contact immediately, so created date and contact date are the same in practice.
+- **Milestone counting:** a sanction or disbursement report counts every case that reached that stage in the period, even if the case has moved on since. Disbursed is the final stage and marks the case as completed.
+- **Dropped after sanction:** still counted as sanctioned for the period, and the row is marked Dropped with its reason.
+- **Search:** staff can search by name, mobile number, tracking number and bank. Results show leads and their cases together, grouped.
+- **List filters:** stage and bank. Assigned employee, date range and dropped were not selected and need confirmation.
+- **Staff email mailboxes:** not needed. Staff do not get `@business` mailboxes. System alerts only need a sender address on the business domain, which needs a domain and an SMTP sending service.
+- **Documents (first version):** basic per-case checklist with upload is included in the first version. Requirements per document are still to be defined (O6).
+- **Hosting budget:** ₹1,000 to ₹3,000 per month. **To be discussed further.**
+- **Operations:** the owner will look after the system after go-live, with outside help as needed. Admin support for other staff comes later.
+- **Platform (first version):** web app only, designed to work well on a phone browser. A native iOS and Android app is a later phase. This replaces the earlier "web and mobile" direction in section 1.
+
 ## 11. Open questions
 
 | # | Topic | Question |
 |---|---|---|
-| O1 | Tracking number | Is "Logged in" the point where the file is submitted to the bank and the tracking number is issued? |
+| O1 | Tracking number | **Resolved.** "Logged in" = submitted to the bank; the bank issues the loan application number, which is the tracking number. |
 | O2 | Lead lifecycle | Exact lead stages beyond "Received" (qualified, lost, inactive, and so on). |
 | O3 | Bank stages | Bank-specific stages and allowed transitions for HDFC and SBI, to follow the generic flow. |
 | O4 | Customer Data | Fields beyond the minimum lead data. |
 | O5 | Permissions | Final role permissions after the open-access phase. |
-| O6 | Documents | Checklist contents, file size limits, retention, versioning. |
+| O6 | Documents | Basic checklist and upload are in v1. Still open: checklist contents per case type, file size limits, retention, versioning. |
 | O7 | Tasks and reminders | Due dates, overdue alerts, notification channels. |
-| O8 | Reports | Metric definitions, filters, export needs, who can see each report. |
-| O9 | Search and duplicates | Search fields and duplicate handling for customers and leads. |
+| O8 | Reports | **Partly resolved.** Lead count uses creation date. Sanction and disbursement counts use the date each stage was reached. Dropped-after-sanction is counted and marked. Still open: export needs, and who can see each report. |
+| O9 | Search and duplicates | **Mostly resolved.** Search by name, mobile, tracking number, bank; grouped results; duplicates warn and link. Still open: whether filters for assigned employee, date range and dropped should also be included. |
 | O10 | Audit and deletion | Which actions need permanent history; deletion policy for cases. |
-| O11 | Operations | Hosting, budget, backups, production administrator. Deferred until technology is discussed. |
+| O11 | Operations | Budget is ₹1,000 to ₹3,000/month, to be discussed further. Owner administers the system after go-live. Still open: hosting choice (after technology is discussed) and backup expectations. |
 | O12 | Other products | Site/plot loan terminology and the LAP workflow. |
