@@ -4,18 +4,19 @@ This file tells AI coding agents how to work on this repository. Read it first.
 
 ## 1. What this project is
 
-Nexflow is an internal tracking portal for a small Direct Selling Agent (DSA) business. Staff track leads and home-loan cases from first contact through bank processing, sanction, documentation and disbursement.
+Nexflow is an internal tracking portal for a small Direct Selling Agent (DSA) business. Staff track customers and their home-loan cases from first contact through bank processing, sanction, documentation and disbursement.
 
 - Internal staff only. No customer accounts or portals.
 - One business. Not a multi-tenant SaaS.
-- Web and mobile clients on one backend and one database.
+- A web app for the first version, designed to work well on phone browsers. A native mobile app is a later phase.
+- One backend and one database. Any later client calls the same API.
 
 Confirmed business decisions are in `docs/00-decisions.md`. That file is the source of truth for scope. Background context in older notes is not binding.
 
 ## 2. Rules for agents
 
 - **Do not invent business rules.** Fields, stages, permissions and document lists come from `docs/00-decisions.md` or from the owner. If something is open, ask one focused question.
-- **Do not pick the technology stack** until the owner asks for it. Architecture rules in this file apply to any stack.
+- **Technology stack** is set in `docs/tech-stack.md` (owner decision, round 10). Follow it. Do not change it without the owner's approval. Architecture rules in this file apply to any stack.
 - **Follow the Superpowers method:** brainstorm, write a spec, write a plan of small steps, then implement with test-driven development for business rules and critical workflows.
 - **Specs go in** `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`. **Plans go in** `docs/superpowers/plans/`.
 - **Do not build** anything beyond the approved spec. Do not add commission, accounting, customer portal, call logging or employee monitoring.
@@ -28,10 +29,10 @@ Confirmed business decisions are in `docs/00-decisions.md`. That file is the sou
 - **One source of truth.** One database. Web and mobile both call the same API.
 - **Server-side authorization.** Every API request checks the user's role and permission on the server. The client is never trusted.
 - **Keep stage history.** Moving a case to a later stage adds a new event with a date. Never overwrite earlier milestones.
-- **Separate concepts.** Lead, customer and loan case are different records. A lead can become a case. A customer can have many cases.
+- **Separate concepts.** Customer and loan case are different records. A customer can have many cases. There is no separate lead record (decisions round 9).
 - **Configuration, not code, for lists.** Banks, stages and dropdown values are data maintained by the admin. Bank-specific logic must not be hard-coded.
 - **Private files.** Uploaded documents are never public. Access uses short-lived, authorized links.
-- **Audit history.** Record who did what and when for lead creation, assignment, reassignment, stage changes and deletions.
+- **Audit history.** Record who did what and when for customer creation, assignment, reassignment, stage changes and deletions.
 - **Simple first.** No workflow engine or other infrastructure until a clear need is shown.
 
 ## 4. Proposed folder structure
@@ -49,8 +50,8 @@ nexflow/
 │       └── plans/            # implementation plans (dated)
 ├── backend/                  # API, business rules, database migrations, tests
 │   └── modules/              # one folder per domain area (see below)
-├── web/                      # web app for managers and employees
-├── mobile/                   # mobile app for employees
+├── web/                      # web app for managers and employees (phone-friendly)
+├── mobile/                   # native mobile app (later phase, not started)
 ├── infra/                    # deployment, containers, CI configuration (no secrets)
 └── .env.example              # variable names only
 ```
@@ -60,8 +61,7 @@ Backend domain modules (names may change after the spec):
 | Module | Covers |
 |---|---|
 | `access` | Users, roles, permissions, login |
-| `leads` | Lead capture, source, assignment, reassignment history |
-| `customers` | Reusable customer records (fields to be confirmed) |
+| `customers` | Customer records, duplicate check by mobile, customer drop |
 | `cases` | Loan cases, bank, stage, tracking number, milestone dates |
 | `workflows` | Stage lists and bank-specific configuration (admin-maintained) |
 | `documents` | Checklists, uploads, document status (later phase) |
