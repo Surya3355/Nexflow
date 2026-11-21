@@ -1,0 +1,13 @@
+DROP TABLE IF EXISTS alert_log;
+DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS archive;
+DROP TABLE IF EXISTS documents;
+DROP TABLE IF EXISTS case_assignment_events;
+DROP TABLE IF EXISTS case_stage_events;
+DROP TABLE IF EXISTS cases;
+DROP TABLE IF EXISTS customers;
+DROP TABLE IF EXISTS stages;
+DROP TABLE IF EXISTS dropdown_values;
+DROP TABLE IF EXISTS banks;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS users;

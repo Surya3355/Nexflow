@@ -178,6 +178,15 @@ Each stage keeps its own date so that reports can use milestone dates.
 - **Link expiry:** 10 minutes.
 - **Frontend and other tool choices:** left to the implementation plan (owner has no preference).
 
+## 10l. Decisions from round 14 (2026-11-21, after first demo)
+
+- **Projects.** Admin keeps a list of projects (name only, rename allowed), same as banks. Every case belongs to one project; **NA** is a fixed entry at the top for loans without a builder project. Existing cases become NA. The project picker is searchable and starts empty.
+- **Projects page** in the top bar for all roles, each project's cases with CSV download. A builder role with limited access comes later.
+- Project shows on the case and customer pages, is editable from case edit, filters case lists and Reports, is a CSV column, and is found by search (NA excluded from search).
+- **Existing mobile in New customer:** offer to add the case to the existing customer. If that customer was dropped, offer to bring them back and add the case; their old dropped cases stay dropped.
+- **Tracking number:** letters and digits only, saved in capitals.
+- Spec: `docs/superpowers/specs/2026-11-21-projects-and-fixes-design.md`.
+
 ## 11. Open questions
 
 | # | Topic | Question |

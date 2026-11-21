@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexflow · Pick a version</title><link rel="stylesheet" href="style.css">
+<style>.vgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; } .vgrid .card { display: flex; flex-direction: column; gap: 8px; } .vgrid .card .btn { margin-top: auto; align-self: flex-start; }</style>
+</head>
+<body>
+<main class="page stack">
+  <h1>Three ways to lay out the main screens</h1>
+  <p class="muted">Login, Reports and Admin are the same in all three versions. The difference is how you find a case and work on it.</p>
+  <div class="vgrid">
+    <div class="card">
+      <h2>A · List + pages</h2>
+      <p class="muted">Home is a list of cases. Tap a case and you go to its own page, and the customer has a separate page too. This is the most familiar layout and works best on a phone.</p>
+      <p><b>6 screens</b> · Home, Customer, Case, Reports, Admin, Login</p>
+      <a class="btn primary" href="index.html">Open version A</a>
+    </div>
+    <div class="card">
+      <h2>B · Board</h2>
+      <p class="muted">Cases are cards sitting in their stage's column, so you see the whole pipeline at once. A case opens in a side panel. Great on a laptop for managers; on a phone you scroll sideways through the columns.</p>
+      <p><b>6 screens</b> · the Case page becomes mostly a side panel</p>
+      <a class="btn primary" href="board.html">Open version B</a>
+    </div>
+    <div class="card">
+      <h2>C · Split view</h2>
+      <p class="muted">Works like an email inbox: customers on the left, everything about the selected customer on the right, with each case expandable. Fewest clicks on a laptop. On a phone it stacks, which feels more cramped.</p>
+      <p><b>4 screens</b> · Home, Customer and Case become one</p>
+      <a class="btn primary" href="split.html">Open version C</a>
+    </div>
+  </div>
+  <p class="mock">You can also mix them, for example C as Home with B's board added as a chip ("List / Board").</p>
+</main>
+</body></html>

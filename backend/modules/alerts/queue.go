@@ -1,0 +1,113 @@
+// Package alerts queues and sends email alerts (spec §10): case assignment,
+// and follow-up due or overdue. Alerts are queued in the same transaction as
+// the change, then sent by a job. A failed send is kept for retry.
+package alerts
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/Surya3355/nexflow/backend/modules/alerts/alertsdb"
+	"github.com/Surya3355/nexflow/backend/modules/history"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// Alert kinds (database-schema §7).
+const (
+	KindAssigned        = "assigned"
+	KindFollowUpDue     = "follow_up_due"
+	KindFollowUpOverdue = "follow_up_overdue"
+)
+
+// Sender sends one email. The SMTP implementation waits for hosting (plan Task 34 note).
+type Sender interface {
+	Send(ctx context.Context, to, subject, body string) error
+}
+
+// DispatchResult counts one send run.
+type DispatchResult struct {
+	Sent   int
+	Failed int
+}
+
+// Queue writes alerts and sends them.
+type Queue struct {
+	pool *pgxpool.Pool
+}
+
+// NewQueue returns a queue on pool.
+func NewQueue(pool *pgxpool.Pool) *Queue {
+	return &Queue{pool: pool}
+}
+
+// executor returns the open transaction in ctx, or the pool.
+func (q *Queue) executor(ctx context.Context) alertsdb.DBTX {
+	if tx, ok := history.TxFromContext(ctx); ok {
+		return tx
+	}
+	return q.pool
+}
+
+// Enqueue adds an alert. A duplicate (same case, kind, due date and recipient)
+// is ignored, so each alert is queued once (database-schema §7).
+func (q *Queue) Enqueue(ctx context.Context, caseID, recipientID int64, kind string, dueOn *time.Time) error {
+	var due pgtype.Date
+	if dueOn != nil {
+		due = pgtype.Date{Time: *dueOn, Valid: true}
+	}
+	if _, err := alertsdb.New(q.executor(ctx)).EnqueueAlert(ctx, alertsdb.EnqueueAlertParams{
+		CaseID: caseID, RecipientUserID: recipientID, Kind: kind, DueOn: due,
+	}); err != nil {
+		return fmt.Errorf("alerts: enqueue: %w", err)
+	}
+	return nil
+}
+
+// QueueAssigned queues the assignment alert for the new assignee. It satisfies
+// cases.Notifier, and runs inside the assignment transaction.
+func (q *Queue) QueueAssigned(ctx context.Context, caseID, recipientID int64) error {
+	return q.Enqueue(ctx, caseID, recipientID, KindAssigned, nil)
+}
+
+// Dispatch sends up to limit queued alerts. A failed send is recorded and the
+// alert stays queued for the next run. A user with no email address is also
+// kept queued, with the reason.
+func (q *Queue) Dispatch(ctx context.Context, sender Sender, limit int32) (DispatchResult, error) {
+	db := alertsdb.New(q.pool)
+	rows, err := db.UnsentAlerts(ctx, limit)
+	if err != nil {
+		return DispatchResult{}, fmt.Errorf("alerts: unsent: %w", err)
+	}
+	var res DispatchResult
+	for _, r := range rows {
+		if r.Email == "" {
+			res.Failed++
+			_ = db.MarkAlertFailed(ctx, alertsdb.MarkAlertFailedParams{ID: r.ID, LastError: pgtype.Text{String: "no email address", Valid: true}})
+			continue
+		}
+		subject, body := compose(r.Kind, r.CustomerName, r.CaseRef)
+		if err := sender.Send(ctx, r.Email, subject, body); err != nil {
+			res.Failed++
+			_ = db.MarkAlertFailed(ctx, alertsdb.MarkAlertFailedParams{ID: r.ID, LastError: pgtype.Text{String: err.Error(), Valid: true}})
+			continue
+		}
+		if err := db.MarkAlertSent(ctx, r.ID); err != nil {
+			return res, fmt.Errorf("alerts: mark sent: %w", err)
+		}
+		res.Sent++
+	}
+	return res, nil
+}
+
+func compose(kind, customer string, caseID int64) (string, string) {
+	switch kind {
+	case KindAssigned:
+		return "A case has been assigned to you", fmt.Sprintf("Case %d for %s has been assigned to you in Nexflow.", caseID, customer)
+	case KindFollowUpDue:
+		return "Follow-up due today", fmt.Sprintf("Case %d for %s has a follow-up due today.", caseID, customer)
+	default:
+		return "Follow-up overdue", fmt.Sprintf("Case %d for %s has a follow-up that is overdue.", caseID, customer)
+	}
+}

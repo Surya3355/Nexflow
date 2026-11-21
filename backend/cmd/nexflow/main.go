@@ -1,0 +1,95 @@
+// Command nexflow runs the Nexflow API server and its scheduled jobs.
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/Surya3355/nexflow/backend/internal/platform/config"
+	"github.com/Surya3355/nexflow/backend/modules/access"
+	"github.com/Surya3355/nexflow/backend/modules/alerts"
+	"github.com/Surya3355/nexflow/backend/modules/archive"
+	"github.com/Surya3355/nexflow/backend/modules/cases"
+	"github.com/Surya3355/nexflow/backend/modules/customers"
+	"github.com/Surya3355/nexflow/backend/modules/documents"
+	"github.com/Surya3355/nexflow/backend/modules/history"
+	apihttp "github.com/Surya3355/nexflow/backend/modules/http"
+	"github.com/Surya3355/nexflow/backend/modules/reports"
+	"github.com/Surya3355/nexflow/backend/modules/workflows"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "create-admin" {
+		if err := runCreateAdmin(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	pool, err := pgxpool.New(ctx, cfg.DBURL)
+	if err != nil {
+		log.Fatalf("database: %v", err)
+	}
+	defer pool.Close()
+	if err := migrateUp(pool); err != nil {
+		log.Fatalf("migrations: %v", err)
+	}
+
+	rec := history.NewPgRecorder(pool)
+	store, err := documents.NewLocalStore(cfg.UploadDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	queue := alerts.NewQueue(pool)
+	accessSvc := access.NewService(pool, rec)
+	wf := workflows.NewService(pool, rec)
+	caseSvc := cases.NewService(pool, wf, rec)
+	caseSvc.SetNotifier(queue)
+	archiveSvc := archive.NewService(pool, rec)
+	archiveSvc.SetFileRemover(store)
+
+	handler := apihttp.NewRouter(apihttp.Deps{
+		Auth:      access.NewHandler(accessSvc, access.NewSessionManager(pool, cfg.SecureCookies)),
+		Access:    accessSvc,
+		Workflows: wf,
+		Customers: customers.NewService(pool, rec),
+		Cases:     caseSvc,
+		Documents: documents.NewService(pool, store, rec),
+		Linker:    documents.NewLinker(cfg.LinkSecret),
+		Archive:   archiveSvc,
+		Reports:   reports.NewService(pool),
+	})
+
+	jobs := Jobs{Archive: archiveSvc, Queue: queue, Sender: unconfiguredSender{}}
+	go schedule(ctx, jobs, time.Now)
+
+	srv := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      60 * time.Second,
+	}
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdown)
+	}()
+	log.Printf("nexflow listening on %s", cfg.HTTPAddr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
+}
