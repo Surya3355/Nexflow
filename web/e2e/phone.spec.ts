@@ -101,7 +101,7 @@ test("Home shows Today and Needs attention at 900 px", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Needs attention" })).toBeVisible();
 });
 
-// Spec 2026-11-21 §6: the project box opened on Home still fits a 360 px phone.
+// Spec 2026-11-21 §6: the project box (now in the Home Filter panel) still fits a 360 px phone.
 test("project box on Home has no horizontal scroll at 360 px", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   await page.route("**/api/**", (route) => {
@@ -110,7 +110,8 @@ test("project box on Home has no horizontal scroll at 360 px", async ({ page }) 
     return body === undefined ? route.fulfill({ status: 404, json: { error: "not mocked" } }) : route.fulfill({ json: body });
   });
   await page.goto("/");
-  await page.getByRole("combobox", { name: "Project" }).click();
+  await page.getByRole("button", { name: "Filter" }).click();
+  await page.getByRole("dialog", { name: "Filter" }).getByRole("combobox", { name: "Project" }).click();
   await expect(page.getByRole("option", { name: "Prestige Lakeside Habitat Phase 2" })).toBeVisible();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -151,5 +152,22 @@ test("lead page shows the builder contact with a call link at 360 px", async ({ 
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+// Spec 2026-11-24 home filter: the tabs and the Filter button sit on one line at 360 px.
+test("Home tabs and Filter fit one line at 360 px", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.route("**/api/**", (route) => {
+    const body = api[new URL(route.request().url()).pathname];
+    return body === undefined ? route.fulfill({ status: 404, json: { error: "not mocked" } }) : route.fulfill({ json: body });
+  });
+  await page.goto("/");
+  const filter = page.getByRole("button", { name: "Filter" });
+  await expect(filter).toBeVisible();
+  const tabs = await page.getByRole("tablist", { name: "Lists" }).boundingBox();
+  const btn = await filter.boundingBox();
+  expect(tabs && btn && Math.abs(tabs.y - btn.y) < 12).toBe(true);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });

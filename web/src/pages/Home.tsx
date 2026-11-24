@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { AttentionItem, Bank, CaseRow, DashboardData, LeadRow, Project, SearchGroup, Stage, StaffUser } from "../api/types";
-import { Chip } from "../components/Chip";
+import type { AttentionItem, Bank, CaseRow, DashboardData, LeadRow, Project, SearchGroup, StaffUser } from "../api/types";
 import { btnPrimary, btnSmall, card, istToday, muted, page, rupees } from "../components/ui";
 import { defaultScope } from "../roles";
 import type { SignedInUser } from "./Login";
-import { ProjectPicker } from "../components/ProjectPicker";
+import { FilterPanel } from "./home/FilterPanel";
+import { countFilters, filterLeads, noFilters, type Filters } from "./home/leadFilter";
 import { CaseTable, type ListRow } from "./home/CaseTable";
 import { LeadList, ResponseBadge } from "./home/LeadList";
 import { NewCustomerPanel } from "./home/NewCustomerPanel";
@@ -23,10 +23,17 @@ function greeting(name: string, now = new Date()): string {
   return `${part}, ${name.trim().split(/\s+/)[0]}`;
 }
 
-const chipSelect =
-  "rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 hover:border-slate-400 disabled:opacity-50";
+const tabs: { id: Scope; label: string }[] = [
+  { id: "leads", label: "Leads" },
+  { id: "mine", label: "My cases" },
+  { id: "all", label: "All" },
+  { id: "attention", label: "Needs attention" },
+];
 
-/** Home: search, filter chips and the case list, with today's numbers beside it (spec §5.2). */
+/**
+ * Home: search, four list tabs and one Filter button, then the list, with
+ * today's numbers beside it (spec §5.2; tabs and Filter: spec 2026-11-24).
+ */
 export function Home({ user }: { user: SignedInUser }) {
   const [scope, setScope] = useState<Scope>(defaultScope(user.role));
   const [query, setQuery] = useState("");
@@ -37,15 +44,9 @@ export function Home({ user }: { user: SignedInUser }) {
   const [today, setToday] = useState<DashboardData | null>(null);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [stages, setStages] = useState<Stage[]>([]);
   const [users, setUsers] = useState<StaffUser[]>([]);
-  const [bankId, setBankId] = useState("");
-  const [projectId, setProjectId] = useState<number | null>(null);
-  const [stageId, setStageId] = useState("");
-  const [assigneeId, setAssigneeId] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [showDates, setShowDates] = useState(false);
+  const [filters, setFilters] = useState<Filters>(noFilters);
+  const [filtering, setFiltering] = useState(false);
   const [shown, setShown] = useState(PAGE);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,27 +61,19 @@ export function Home({ user }: { user: SignedInUser }) {
     api.request<DashboardData>("GET", `/api/reports/dashboard?from=${month}&to=${istToday()}`).then(setToday).catch(() => setToday(null));
   }, []);
 
-  useEffect(() => {
-    if (!bankId) {
-      setStages([]);
-      return;
-    }
-    api.request<Stage[]>("GET", `/api/config/banks/${bankId}/stages`).then(setStages).catch(() => setStages([]));
-  }, [bankId]);
-
+  const { bankId, projectId, stageId, assigneeId, from, to } = filters;
   useEffect(() => {
     const params = new URLSearchParams();
     if (bankId) params.set("bank_id", bankId);
     if (projectId !== null) params.set("project_id", String(projectId));
     if (stageId) params.set("stage_id", stageId);
-    if (assigneeId) params.set("assignee_id", assigneeId);
     if (from) params.set("from", from);
     if (to) params.set("to", to);
     const qs = params.toString();
     api.request<CaseRow[]>("GET", `/api/cases${qs ? `?${qs}` : ""}`)
       .then((r) => { setRows(r); setError(null); })
       .catch(() => { setRows([]); setError("Could not load cases."); });
-  }, [bankId, projectId, stageId, assigneeId, from, to]);
+  }, [bankId, projectId, stageId, from, to]);
 
   // Search waits for a pause in typing; an empty box shows the case list again.
   useEffect(() => {
@@ -97,7 +90,10 @@ export function Home({ user }: { user: SignedInUser }) {
     return () => clearTimeout(timer);
   }, [query]);
 
+  // Assigned to is applied here, not in the request, so My cases always holds
+  // your own cases even when All is filtered to someone else.
   const mineRows = useMemo(() => rows.filter((r) => r.assignee_id === user.id), [rows, user.id]);
+  const allRows = useMemo(() => (assigneeId ? rows.filter((r) => String(r.assignee_id) === assigneeId) : rows), [rows, assigneeId]);
   const scopedAttention = useMemo(
     () => (defaultScope(user.role) === "mine" ? attention.filter((a) => a.assignee_id === user.id) : attention),
     [attention, user.id, user.role],
@@ -108,7 +104,9 @@ export function Home({ user }: { user: SignedInUser }) {
     [leads, user.id, user.role],
   );
   const attentionCount = scopedAttention.length + leadAttention.length;
-  const listed: ListRow[] = scope === "mine" ? mineRows : scope === "all" ? rows : scope === "attention" ? scopedAttention : [];
+  const shownLeads = useMemo(() => filterLeads(leads, filters), [leads, filters]);
+  const filterCount = scope === "attention" ? 0 : countFilters(filters, scope);
+  const listed: ListRow[] = scope === "mine" ? mineRows : scope === "all" ? allRows : scope === "attention" ? scopedAttention : [];
 
   function pick(s: Scope) {
     setScope(s);
@@ -123,7 +121,7 @@ export function Home({ user }: { user: SignedInUser }) {
       </div>
 
       <div className="grid items-start gap-5 min-[1100px]:grid-cols-[1fr_300px]">
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <input
             type="search"
             aria-label="Search"
@@ -134,33 +132,23 @@ export function Home({ user }: { user: SignedInUser }) {
           />
 
           {groups === null && (
-            <div className="flex flex-wrap gap-1.5">
-              <Chip active={scope === "leads"} onClick={() => pick("leads")}>{`Leads · ${leads.length}`}</Chip>
-              <Chip active={scope === "mine"} onClick={() => pick("mine")}>{`My cases · ${mineRows.length}`}</Chip>
-              <Chip active={scope === "all"} onClick={() => pick("all")}>{`All cases · ${rows.length}`}</Chip>
-              <Chip active={scope === "attention"} onClick={() => pick("attention")}>{`Needs attention · ${attentionCount}`}</Chip>
-              <select aria-label="Bank" className={chipSelect} value={bankId} onChange={(e) => { setBankId(e.target.value); setStageId(""); }}>
-                <option value="">Bank: all</option>
-                {banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-              <div className="w-44">
-                <ProjectPicker projects={projects} value={projectId} onChange={setProjectId} allowAll aria-label="Project" className={`${chipSelect} w-full`} placeholder="Project: all" />
+            <div className="flex items-center gap-2">
+              <div role="tablist" aria-label="Lists" className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
+                {tabs.map((t) => {
+                  const n = t.id === "leads" ? shownLeads.length : t.id === "mine" ? mineRows.length : t.id === "all" ? allRows.length : attentionCount;
+                  const on = scope === t.id;
+                  return (
+                    <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => pick(t.id)}
+                      className={`whitespace-nowrap rounded-full border px-3 py-1 text-sm ${on ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"}`}>
+                      {`${t.label} · ${n}`}
+                    </button>
+                  );
+                })}
               </div>
-              <select aria-label="Stage" className={chipSelect} value={stageId} onChange={(e) => setStageId(e.target.value)} disabled={!bankId} title={bankId ? undefined : "Choose a bank first"}>
-                <option value="">Stage: all</option>
-                {stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-              <select aria-label="Assigned to" className={chipSelect} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-                <option value="">Assigned: anyone</option>
-                {users.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-              </select>
-              <Chip active={showDates || Boolean(from || to)} onClick={() => setShowDates((v) => !v)}>Date ▾</Chip>
-            </div>
-          )}
-          {groups === null && showDates && (
-            <div className="flex flex-wrap gap-3 text-sm">
-              <label className="text-slate-600">From <input type="date" aria-label="From" className="ml-1 rounded-lg border border-slate-300 px-2 py-1" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-              <label className="text-slate-600">To <input type="date" aria-label="To" className="ml-1 rounded-lg border border-slate-300 px-2 py-1" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+              <button type="button" className={`${btnSmall} shrink-0 disabled:opacity-50`} disabled={scope === "attention"}
+                aria-label={filterCount > 0 ? `Filter, ${filterCount} on` : "Filter"} onClick={() => setFiltering(true)}>
+                ⚙ Filter{filterCount > 0 ? ` · ${filterCount}` : ""}
+              </button>
             </div>
           )}
 
@@ -170,7 +158,7 @@ export function Home({ user }: { user: SignedInUser }) {
             <SearchResults groups={groups} />
           ) : (
             scope === "leads" ? (
-              leads.length === 0 ? <p className={`${card} ${muted}`}>No open leads.</p> : <LeadList leads={leads} />
+              shownLeads.length === 0 ? <p className={`${card} ${muted}`}>{leads.length === 0 ? "No open leads." : "No leads match."}</p> : <LeadList leads={shownLeads} />
             ) : <>
               {listed.length === 0 && (scope !== "attention" || leadAttention.length === 0) ? (
                 <p className={`${card} ${muted}`}>{scope === "attention" ? "Nothing needs attention." : "No cases match."}</p>
@@ -191,6 +179,11 @@ export function Home({ user }: { user: SignedInUser }) {
         </div>
       </div>
 
+      {scope !== "attention" && (
+        <FilterPanel open={filtering} scope={scope} value={filters} banks={banks} projects={projects} users={users}
+          onClose={() => setFiltering(false)}
+          onApply={(f) => { setFilters(f); setFiltering(false); setShown(PAGE); }} />
+      )}
       <NewCustomerPanel open={adding} onClose={() => setAdding(false)} projects={projects} users={users} meId={user.id} />
     </main>
   );

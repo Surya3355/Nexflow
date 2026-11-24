@@ -80,14 +80,14 @@ describe("Home", () => {
     setup(me, [mine, theirs]);
     expect(await screen.findByText("Ravi Kumar")).toBeInTheDocument();
     expect(screen.queryByText("Lakshmi Reddy")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "My cases · 1" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("tab", { name: "My cases · 1" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("manager starts on All cases", async () => {
     setup({ ...me, role: "manager" }, [mine, theirs]);
     expect(await screen.findByText("Lakshmi Reddy")).toBeInTheDocument();
     expect(screen.getByText("Ravi Kumar")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "All cases · 2" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("tab", { name: "All · 2" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("shows customer, bank, stage and amount in each row", async () => {
@@ -109,7 +109,7 @@ describe("Home", () => {
     setup(me, [mine], {
       "GET /api/cases/attention": { body: [{ ...row({ id: 9, customer_name: "Geetha V" }), reason: "In Received for 9 days" }] },
     });
-    await userEvent.click(await screen.findByRole("button", { name: "Needs attention · 1" }));
+    await userEvent.click(await screen.findByRole("tab", { name: "Needs attention · 1" }));
     const list = screen.getByRole("list", { name: "Cases" });
     expect(within(list).getByText("Geetha V")).toBeInTheDocument();
     expect(within(list).getByText("In Received for 9 days")).toBeInTheDocument();
@@ -161,8 +161,10 @@ describe("Home", () => {
     const spy = setup(me, [row({ id: 1, customer_name: "Ravi Kumar", assignee_id: 7, project_name: "Prestige" })]);
     const list = await screen.findByRole("list", { name: "Cases" });
     expect(within(list).getByRole("link", { name: /Ravi Kumar/ })).toHaveTextContent("Prestige");
-    await userEvent.type(screen.getByRole("combobox", { name: "Project" }), "Pre");
-    await userEvent.click(screen.getByRole("option", { name: "Prestige" }));
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    const panel = screen.getByRole("dialog", { name: "Filter" });
+    await pickProject(panel, "Prestige");
+    await userEvent.click(within(panel).getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(spy.mock.calls.some(([u]) => String(u).startsWith("/api/cases?") && String(u).includes("project_id=4"))).toBe(true));
   });
 
@@ -253,9 +255,8 @@ describe("Leads on Home", () => {
 
   it("Leads chip lists open leads first", async () => {
     setup(me, [mine], { "GET /api/leads": { body: [due, fresh] } });
-    const chips = await screen.findAllByRole("button", { pressed: false });
-    const leadsChip = await screen.findByRole("button", { name: "Leads · 2" });
-    expect(chips[0]).toBe(leadsChip);
+    const leadsChip = await screen.findByRole("tab", { name: "Leads · 2" });
+    expect(screen.getAllByRole("tab")[0]).toBe(leadsChip);
     await userEvent.click(leadsChip);
     const list = screen.getByRole("list", { name: "Leads" });
     const rows = within(list).getAllByRole("link");
@@ -268,7 +269,7 @@ describe("Leads on Home", () => {
 
   it("Needs attention includes due lead calls", async () => {
     setup(me, [mine], { "GET /api/leads": { body: [due, fresh] } });
-    await userEvent.click(await screen.findByRole("button", { name: "Needs attention · 1" }));
+    await userEvent.click(await screen.findByRole("tab", { name: "Needs attention · 1" }));
     const list = screen.getByRole("list", { name: "Cases" });
     expect(within(list).getByText("Meena S")).toBeInTheDocument();
     expect(within(list).getByText("Call overdue by 2 days")).toBeInTheDocument();
@@ -280,13 +281,17 @@ describe("Home filters and search (carried from the old Cases and Search pages)"
   it("applies the bank and assignee filters together and keeps dropped cases visible", async () => {
     const spy = setup({ ...me, role: "manager" }, [row({ id: 21, status: "dropped", customer_name: "Venkat Rao" })]);
     expect(await screen.findByRole("link", { name: /Venkat Rao/ })).toHaveTextContent("Dropped");
-    await userEvent.selectOptions(screen.getByLabelText("Bank"), "1");
-    await userEvent.selectOptions(screen.getByLabelText("Assigned to"), "8");
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    const panel = screen.getByRole("dialog", { name: "Filter" });
+    await userEvent.selectOptions(within(panel).getByLabelText("Bank"), "1");
+    await userEvent.selectOptions(within(panel).getByLabelText("Assigned to"), "8");
+    await userEvent.click(within(panel).getByRole("button", { name: "Apply" }));
+    expect(screen.getByRole("button", { name: "Filter, 2 on" })).toBeInTheDocument();
     await waitFor(() => {
       const last = spy.mock.calls.map(([u]) => String(u)).filter((u) => u.startsWith("/api/cases?")).pop();
       expect(last).toContain("bank_id=1");
-      expect(last).toContain("assignee_id=8");
     });
+    expect(screen.getByRole("tab", { name: "All · 0" })).toBeInTheDocument();
   });
 
   it("explains when a search matches nothing", async () => {
@@ -294,5 +299,121 @@ describe("Home filters and search (carried from the old Cases and Search pages)"
     await screen.findByText("Ravi Kumar");
     await userEvent.type(screen.getByRole("searchbox"), "zzz");
     expect(await screen.findByText("No customers or cases match.")).toBeInTheDocument();
+  });
+});
+
+describe("Home tabs and Filter", () => {
+  const casesCalls = (spy: ReturnType<typeof mockApi>) => spy.mock.calls.map(([u]) => String(u)).filter((u) => u.startsWith("/api/cases") && !u.startsWith("/api/cases/attention"));
+
+  it("shows four tabs and one Filter button instead of the filter row", async () => {
+    setup(me, [row({ id: 1 })]);
+    const tabs = await screen.findByRole("tablist", { name: "Lists" });
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Leads · 0", "My cases · 1", "All · 1", "Needs attention · 0"]);
+    expect(screen.queryByLabelText("Bank")).toBeNull();
+    expect(screen.getByRole("button", { name: "Filter" })).toBeEnabled();
+  });
+
+  it("closing the panel without Apply changes nothing", async () => {
+    const spy = setup(me, [row({ id: 1 })]);
+    await screen.findByText("Ravi Kumar");
+    const before = casesCalls(spy).length;
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    const panel = screen.getByRole("dialog", { name: "Filter" });
+    await userEvent.selectOptions(within(panel).getByLabelText("Bank"), "1");
+    await userEvent.click(within(panel).getByRole("button", { name: "Close" }));
+    expect(casesCalls(spy)).toHaveLength(before);
+    expect(screen.getByRole("button", { name: "Filter" })).toBeInTheDocument();
+  });
+
+  it("clearing the bank clears the stage", async () => {
+    setup(me, [row({ id: 1 })], { "GET /api/config/banks/1/stages": { body: [{ id: 3, code: "under_sanction", name: "Under sanction", sort_order: 3, requires_document: false }] } });
+    await screen.findByText("Ravi Kumar");
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    const panel = screen.getByRole("dialog", { name: "Filter" });
+    expect(within(panel).getByLabelText("Stage")).toBeDisabled();
+    await userEvent.selectOptions(within(panel).getByLabelText("Bank"), "1");
+    await userEvent.selectOptions(within(panel).getByLabelText("Stage"), await within(panel).findByRole("option", { name: "Under sanction" }));
+    await userEvent.selectOptions(within(panel).getByLabelText("Bank"), "");
+    expect(within(panel).getByLabelText("Stage")).toHaveValue("");
+    expect(within(panel).getByLabelText("Stage")).toBeDisabled();
+  });
+
+  it("Clear all removes every filter", async () => {
+    setup({ ...me, role: "manager" }, [row({ id: 1 })]);
+    await screen.findByText("Ravi Kumar");
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    let panel = screen.getByRole("dialog", { name: "Filter" });
+    await userEvent.selectOptions(within(panel).getByLabelText("Bank"), "1");
+    await userEvent.click(within(panel).getByRole("button", { name: "Apply" }));
+    await userEvent.click(screen.getByRole("button", { name: "Filter, 1 on" }));
+    panel = screen.getByRole("dialog", { name: "Filter" });
+    await userEvent.click(within(panel).getByRole("button", { name: "Clear all" }));
+    expect(screen.getByRole("button", { name: "Filter" })).toBeInTheDocument();
+  });
+
+  it("Leads uses only project and assigned, and keeps the case filters for later", async () => {
+    const mineLead = leadRow({ id: 1, customer_name: "Meena S", assignee_id: 7 });
+    const other = leadRow({ id: 2, customer_name: "Joseph D", assignee_id: 8, assignee_name: "Suresh N" });
+    const spy = setup({ ...me, role: "manager" }, [row({ id: 1 })], { "GET /api/leads": { body: [mineLead, other] } });
+    await screen.findByText("Ravi Kumar");
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    let panel = screen.getByRole("dialog", { name: "Filter" });
+    await userEvent.selectOptions(within(panel).getByLabelText("Bank"), "1");
+    await userEvent.click(within(panel).getByRole("button", { name: "Apply" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Leads · 2" }));
+    expect(screen.getByRole("button", { name: "Filter" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    panel = screen.getByRole("dialog", { name: "Filter" });
+    expect(within(panel).queryByLabelText("Bank")).toBeNull();
+    expect(within(panel).queryByLabelText("From")).toBeNull();
+    await userEvent.selectOptions(within(panel).getByLabelText("Assigned to"), "7");
+    await userEvent.click(within(panel).getByRole("button", { name: "Apply" }));
+    const list = screen.getByRole("list", { name: "Leads" });
+    expect(within(list).getByText("Meena S")).toBeInTheDocument();
+    expect(within(list).queryByText("Joseph D")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Leads · 1" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: /^All · / }));
+    await waitFor(() => expect(casesCalls(spy).pop() ?? "").toContain("bank_id=1"));
+    expect(screen.getByRole("button", { name: "Filter, 2 on" })).toBeInTheDocument();
+  });
+
+  it("My cases hides Assigned to", async () => {
+    setup(me, [row({ id: 1 })]);
+    await screen.findByText("Ravi Kumar");
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    const panel = screen.getByRole("dialog", { name: "Filter" });
+    expect(within(panel).queryByLabelText("Assigned to")).toBeNull();
+    expect(within(panel).getByLabelText("Bank")).toBeInTheDocument();
+  });
+
+  it("Filter is off on Needs attention", async () => {
+    setup(me, [row({ id: 1 })]);
+    await userEvent.click(await screen.findByRole("tab", { name: "Needs attention · 0" }));
+    expect(screen.getByRole("button", { name: "Filter" })).toBeDisabled();
+  });
+
+  it("not-contacted leads come before contacted ones whose call is not due", async () => {
+    const due = leadRow({ id: 1, customer_name: "Meena S", call_due: true, overdue_days: 1, last_response: "call_back", last_contact_at: "2026-11-20T10:00:00Z" });
+    const called = leadRow({ id: 2, customer_name: "Asha K", last_response: "call_back", last_contact_at: "2026-11-22T10:00:00Z" });
+    const fresh = leadRow({ id: 3, customer_name: "Joseph D" });
+    setup(me, [row({ id: 1 })], { "GET /api/leads": { body: [due, called, fresh] } });
+    await userEvent.click(await screen.findByRole("tab", { name: "Leads · 3" }));
+    const names = within(screen.getByRole("list", { name: "Leads" })).getAllByRole("link").map((l) => l.querySelector("b")?.textContent);
+    expect(names).toEqual(["Meena S", "Joseph D", "Asha K"]);
+  });
+
+  it("an Assigned-to filter set on All does not empty My cases", async () => {
+    const mineCase = row({ id: 1, customer_name: "Ravi Kumar", assignee_id: 7 });
+    const theirs = row({ id: 2, customer_name: "Lakshmi Reddy", assignee_id: 8, assignee_name: "Suresh N" });
+    setup(me, [mineCase, theirs]);
+    await userEvent.click(await screen.findByRole("tab", { name: "All · 2" }));
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    const panel = screen.getByRole("dialog", { name: "Filter" });
+    await userEvent.selectOptions(within(panel).getByLabelText("Assigned to"), "8");
+    await userEvent.click(within(panel).getByRole("button", { name: "Apply" }));
+    expect(await screen.findByRole("tab", { name: "All · 1" })).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Cases" })).queryByText("Ravi Kumar")).toBeNull();
+    await userEvent.click(screen.getByRole("tab", { name: "My cases · 1" }));
+    expect(within(screen.getByRole("list", { name: "Cases" })).getByText("Ravi Kumar")).toBeInTheDocument();
   });
 });

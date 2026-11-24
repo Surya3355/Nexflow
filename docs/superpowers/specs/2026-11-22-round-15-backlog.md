@@ -117,5 +117,9 @@ they appear nowhere on Home (only through search). Task 1 (leads) fixes this.
 
 ## Order
 
-To agree with the owner. *Suggestion:* 1 → 2 → 4 → 5 → 3, then 6 → 7 → 8 → 9 → 10
+Done: 1, 2 (2026-11-23), 4, 5, 3 (2026-11-24).
+**Owner, 2026-11-24:** the HDFC work needs the bank's own flow first, so **Task 10 (HDFC stages) comes next**, then
+6 → 7 → 8 → 9 on top of it. Owner will provide the HDFC stage list.
+
+Earlier note: to agree with the owner. *Suggestion:* 1 → 2 → 4 → 5 → 3, then 6 → 7 → 8 → 9 → 10
 together as the HDFC work.
