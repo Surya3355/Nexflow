@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
-import type { Bank, BuilderContact, Case, Project, StaffUser } from "../api/types";
+import type { Bank, BuilderContact, Case, Project, ProjectType, StaffUser } from "../api/types";
+import { unitLabel, unitPlaceholder } from "../api/projectTypes";
 import { Dialog } from "./Dialog";
 import { ProjectPicker } from "./ProjectPicker";
 import { alertBox, btn, btnPrimary, input, label, muted } from "./ui";
@@ -36,6 +37,7 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
   const [busy, setBusy] = useState(false);
   const [contacts, setContacts] = useState<BuilderContact[]>([]);
   const [contactId, setContactId] = useState("");
+  const [fetchedType, setFetchedType] = useState<ProjectType | null>(null);
   const sending = useRef(false);
 
   // The project's current contacts, prefilled with the lead's contact while it
@@ -46,6 +48,7 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
   useEffect(() => {
     setContacts([]);
     setContactId("");
+    setFetchedType(null);
     if (!open || pid === null || isNA) return;
     let live = true;
     api.request<Project>("GET", `/api/config/projects/${pid}`)
@@ -53,6 +56,7 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
         if (!live) return;
         const list = p.contacts ?? [];
         setContacts(list);
+        setFetchedType(p.type ?? null);
         const keep = list.find((c) => c.id === leadContact) ?? list[0];
         setContactId(keep ? String(keep.id) : "");
       })
@@ -66,6 +70,10 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
     api.request<StaffUser[]>("GET", "/api/users").then(setUsers).catch(() => setUsers([]));
     if (!fromLead) api.request<Project[]>("GET", "/api/config/projects").then(setProjects).catch(() => setProjects([]));
   }, [open, fromLead]);
+
+  // The unit no. is named by the project's type and required when it has one.
+  const projectType = fromLead ? fetchedType : projects.find((p) => p.id === projectId)?.type ?? null;
+  const unitName = unitLabel(projectType);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -81,6 +89,10 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
     }
     if (!assigneeId) {
       setError("Choose who it is assigned to.");
+      return;
+    }
+    if (projectType && !unit.trim()) {
+      setError(`Enter the ${unitName.toLowerCase()}.`);
       return;
     }
     if (startAt === "logged_in" && !tracking.trim()) {
@@ -128,7 +140,7 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
             </select>
           </label>
         )}
-        <label className={label}>Unit no.<input className={input} placeholder="Flat, villa or plot number" value={unit} onChange={(e) => setUnit(e.target.value.toUpperCase())} /></label>
+        <label className={label}>{unitName}<input className={input} placeholder={unitPlaceholder} value={unit} onChange={(e) => setUnit(e.target.value.toUpperCase())} /></label>
         <label className={label}>Bank
           <select aria-label="Bank for new case" className={input} value={bankId} onChange={(e) => setBankId(e.target.value)}>
             <option value="">Choose a bank</option>

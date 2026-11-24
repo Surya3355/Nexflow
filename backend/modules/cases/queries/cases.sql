@@ -220,3 +220,6 @@ UPDATE cases SET unit_number = $2, updated_at = now(), updated_by = $3 WHERE id 
 
 -- name: BankExists :one
 SELECT EXISTS (SELECT 1 FROM banks WHERE id = $1);
+
+-- name: ProjectType :one
+SELECT type FROM projects WHERE id = $1;

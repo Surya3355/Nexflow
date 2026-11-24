@@ -316,3 +316,20 @@ describe("CaseDetail builder contact", () => {
     expect(within(details).queryByRole("button", { name: "Change builder contact" })).toBeNull();
   });
 });
+
+describe("CaseDetail unit label", () => {
+  it("plots case labels Plot no. in Details and the change box", async () => {
+    renderCase({}, standard, { ...aCase, project_type: "plots", unit_number: "P-7" });
+    const details = await screen.findByRole("region", { name: "Details" });
+    expect(within(details).getByText("Plot no.")).toBeInTheDocument();
+    await userEvent.click(within(details).getByRole("button", { name: "Change plot no." }));
+    const dialog = await screen.findByRole("dialog", { name: "Change plot no." });
+    expect(within(dialog).getByLabelText("Plot no.")).toHaveAttribute("placeholder", "e.g. A-1012");
+  });
+
+  it("untyped case keeps Unit no.", async () => {
+    renderCase({}, standard, { ...aCase, project_type: null });
+    const details = await screen.findByRole("region", { name: "Details" });
+    expect(within(details).getByText("Unit no.")).toBeInTheDocument();
+  });
+});

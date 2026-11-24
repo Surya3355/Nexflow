@@ -14,6 +14,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// ErrUnitRequired refuses an empty unit number on a builder project (one with
+// a type). NA and old untyped projects stay optional (spec 2026-11-24 unit label).
+var ErrUnitRequired = errors.New("cases: enter the unit number for this project")
+
 // ErrInvalidUnit refuses a unit number outside the allowed characters or length.
 var ErrInvalidUnit = errors.New("cases: unit no. can have letters, numbers, spaces, - and /, up to 20 characters")
 
@@ -57,6 +61,11 @@ func (s *Service) SetUnitNumber(ctx context.Context, actor access.User, caseID i
 	if locked.Status == "dropped" {
 		return Case{}, ErrCaseDropped
 	}
+	if v == "" {
+		if err := s.checkUnitRequired(txCtx, q, locked.ProjectID, v); err != nil {
+			return Case{}, err
+		}
+	}
 	if err := q.SetCaseUnit(txCtx, casesdb.SetCaseUnitParams{
 		ID: caseID, UnitNumber: pgtype.Text{String: v, Valid: v != ""}, UpdatedBy: pgtype.Int8{Int64: actor.ID, Valid: true},
 	}); err != nil {
@@ -73,4 +82,19 @@ func (s *Service) SetUnitNumber(ctx context.Context, actor access.User, caseID i
 		return Case{}, fmt.Errorf("cases: commit: %w", err)
 	}
 	return s.load(ctx, caseID)
+}
+
+// checkUnitRequired refuses an empty unit on a project that has a type.
+func (s *Service) checkUnitRequired(ctx context.Context, q *casesdb.Queries, projectID int64, unit string) error {
+	if unit != "" {
+		return nil
+	}
+	typ, err := q.ProjectType(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("cases: project type: %w", err)
+	}
+	if typ.Valid {
+		return ErrUnitRequired
+	}
+	return nil
 }

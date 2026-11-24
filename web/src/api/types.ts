@@ -23,6 +23,8 @@ export type Case = {
   builder_contact_id?: number | null;
   /** Filled on a single case (GET /api/cases/{id} and writes), not on lists. */
   builder_contact?: BuilderContact | null;
+  /** The project's type (null for NA and untyped); single case only. Drives the unit label. */
+  project_type?: ProjectType | null;
 };
 
 export type Stage = {

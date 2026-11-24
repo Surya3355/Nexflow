@@ -59,6 +59,9 @@ type Case struct {
 	// by Get and the write actions, not by lists.
 	BuilderContactID *int64
 	BuilderContact   *BuilderContact
+	// ProjectType is the project's type (nil for NA and untyped), filled by
+	// Get and the write actions; the web labels the unit no. by it.
+	ProjectType *string
 }
 
 // toCase maps a stored case row to the Case the API presents.
@@ -203,6 +206,9 @@ func (s *Service) prepare(ctx context.Context, in NewCase) (prepared, error) {
 	}
 	p.unit = pgtype.Text{String: unit, Valid: unit != ""}
 	if p.contact, err = s.checkContact(ctx, s.q, in.ProjectID, in.BuilderContactID); err != nil {
+		return p, err
+	}
+	if err := s.checkUnitRequired(ctx, s.q, in.ProjectID, unit); err != nil {
 		return p, err
 	}
 	start := in.StartAt

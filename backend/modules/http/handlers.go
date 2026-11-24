@@ -404,6 +404,10 @@ func caseJSON(c cases.Case) map[string]any {
 	if c.UnitNumber != nil {
 		out["unit_number"] = *c.UnitNumber
 	}
+	out["project_type"] = nil
+	if c.ProjectType != nil {
+		out["project_type"] = *c.ProjectType
+	}
 	out["builder_contact_id"], out["builder_contact"] = nil, nil
 	if c.BuilderContactID != nil {
 		out["builder_contact_id"] = *c.BuilderContactID

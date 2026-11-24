@@ -124,6 +124,7 @@ describe("AddCaseDialog builder contact", () => {
     await within(dialog).findByRole("option", { name: "HDFC" });
     await userEvent.selectOptions(within(dialog).getByLabelText("Bank for new case"), "1");
     await userEvent.type(within(dialog).getByLabelText("Loan amount (₹)"), "100000");
+    await userEvent.type(await within(dialog).findByLabelText("Villa no."), "V-12");
     await userEvent.click(within(dialog).getByRole("button", { name: "Open case" }));
   }
 
@@ -157,5 +158,60 @@ describe("AddCaseDialog builder contact", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Open case" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(bodyOf(spy, "POST /api/cases")).not.toHaveProperty("builder_contact_id");
+  });
+});
+
+describe("AddCaseDialog unit label", () => {
+  function setupType(type: string | null, isSystem = false) {
+    const project = { ...villas, type, is_system: isSystem, contacts: isSystem ? [] : villas.contacts };
+    const spy = mockApi({
+      "GET /api/config/banks": { body: [{ id: 1, name: "HDFC" }] },
+      "GET /api/users": { body: [{ id: 2, full_name: "Anil", username: "anil" }] },
+      "GET /api/config/projects/4": { body: project },
+      "POST /api/leads/9/case": { status: 201, body: saved },
+    });
+    const onSaved = vi.fn();
+    render(
+      <AddCaseDialog open onClose={() => {}} onSaved={onSaved} customerName="Ravi Kumar"
+        fromLead={{ id: 9, projectId: 4, projectName: "Green Villas", assigneeId: 2, builderContactId: 21 }} />,
+    );
+    return { spy, onSaved, dialog: screen.getByRole("dialog") };
+  }
+
+  it("villas: labels Villa no. and requires it", async () => {
+    const { spy, dialog } = setupType("villas");
+    const unit = await within(dialog).findByLabelText("Villa no.");
+    expect(unit).toHaveAttribute("placeholder", "e.g. A-1012");
+    await within(dialog).findByRole("option", { name: "HDFC" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Bank for new case"), "1");
+    await userEvent.type(within(dialog).getByLabelText("Loan amount (₹)"), "100000");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Open case" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Enter the villa no.");
+    expect(bodyOf(spy, "POST /api/leads/9/case")).toBeUndefined();
+    await userEvent.type(unit, "a-1012");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Open case" }));
+    await waitFor(() => expect(bodyOf(spy, "POST /api/leads/9/case")).toMatchObject({ unit_number: "A-1012" }));
+  });
+
+  it("high-rise and apartments label Flat no., plots Plot no.", async () => {
+    setupType("high_rise");
+    expect(await screen.findByLabelText("Flat no.")).toBeInTheDocument();
+  });
+
+  it("plots label Plot no.", async () => {
+    setupType("plots");
+    expect(await screen.findByLabelText("Plot no.")).toBeInTheDocument();
+  });
+
+  it("untyped project keeps an optional Unit no.", async () => {
+    const { spy, dialog, onSaved } = setupType(null);
+    await within(dialog).findByLabelText("Builder contact");
+    expect(within(dialog).getByLabelText("Unit no.")).toBeInTheDocument();
+    await within(dialog).findByRole("option", { name: "HDFC" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Bank for new case"), "1");
+    await userEvent.type(within(dialog).getByLabelText("Loan amount (₹)"), "100000");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Open case" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(bodyOf(spy, "POST /api/leads/9/case")).toMatchObject({ unit_number: "" });
   });
 });

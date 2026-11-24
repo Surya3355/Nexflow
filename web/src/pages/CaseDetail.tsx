@@ -1,3 +1,4 @@
+import { unitLabel, unitPlaceholder } from "../api/projectTypes";
 import { BuilderContactRow } from "../components/BuilderContactRow";
 import { BuilderContactPicker } from "../components/BuilderContactPicker";
 import { useEffect, useState, type FormEvent } from "react";
@@ -189,10 +190,10 @@ export function CaseDetail() {
                 {c.status !== "dropped" && <button type="button" aria-label="Change project" className="ml-2 text-sm font-normal text-blue-700" onClick={() => setChangingProject(true)}>change</button>}
               </dd>
               <BuilderContactRow contact={c.builder_contact} projectId={c.project_id} onChange={c.status !== "dropped" ? () => setPickingContact(true) : undefined} />
-              <dt className="text-slate-500">Unit no.</dt>
+              <dt className="text-slate-500">{unitLabel(c.project_type)}</dt>
               <dd className="font-semibold">
                 {c.unit_number || <span className="font-normal text-slate-500">Not set</span>}
-                {c.status !== "dropped" && <button type="button" aria-label="Change unit no." className="ml-2 text-sm font-normal text-blue-700" onClick={() => setChangingUnit(true)}>change</button>}
+                {c.status !== "dropped" && <button type="button" aria-label={`Change ${unitLabel(c.project_type).toLowerCase()}`} className="ml-2 text-sm font-normal text-blue-700" onClick={() => setChangingUnit(true)}>change</button>}
               </dd>
               {c.tracking_number && <><dt className="text-slate-500">Tracking no.</dt><dd className="font-semibold">{c.tracking_number}</dd></>}
               <dt className="text-slate-500">Assigned to</dt>
@@ -221,7 +222,7 @@ export function CaseDetail() {
       <ProjectDialog open={changingProject} caseId={caseId} current={c.project_id} onClose={() => setChangingProject(false)} onSaved={async () => { setChangingProject(false); await load(); }} />
       <BuilderContactPicker open={pickingContact} projectId={c.project_id} current={c.builder_contact_id} onClose={() => setPickingContact(false)}
         onPick={async (contactId) => { await api.request("POST", `/api/cases/${caseId}/builder-contact`, { contact_id: contactId }); setPickingContact(false); await load(); }} />
-      <UnitDialog open={changingUnit} caseId={caseId} current={c.unit_number ?? ""} onClose={() => setChangingUnit(false)} onSaved={async () => { setChangingUnit(false); await load(); }} />
+      <UnitDialog open={changingUnit} caseId={caseId} name={unitLabel(c.project_type)} current={c.unit_number ?? ""} onClose={() => setChangingUnit(false)} onSaved={async () => { setChangingUnit(false); await load(); }} />
       {customer && (
         <AddCaseDialog open={addingCase} customerId={customer.id} customerName={customer.name} onClose={() => setAddingCase(false)}
           onSaved={(nc) => { setAddingCase(false); navigate(`/cases/${nc.id}`); }} />
@@ -326,7 +327,7 @@ function ProjectDialog({ open, caseId, current, onClose, onSaved }: { open: bool
   );
 }
 
-function UnitDialog({ open, caseId, current, onClose, onSaved }: { open: boolean; caseId: number; current: string; onClose: () => void; onSaved: () => void }) {
+function UnitDialog({ open, caseId, name, current, onClose, onSaved }: { open: boolean; caseId: number; name: string; current: string; onClose: () => void; onSaved: () => void }) {
   const [unit, setUnit] = useState(current);
   const [error, setError] = useState<string | null>(null);
 
@@ -342,14 +343,14 @@ function UnitDialog({ open, caseId, current, onClose, onSaved }: { open: boolean
       await api.request("POST", `/api/cases/${caseId}/unit`, { unit_number: unit.trim() });
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not change the unit no.");
+      setError(err instanceof ApiError ? err.message : `Could not change the ${name.toLowerCase()}`);
     }
   }
 
   return (
-    <Dialog open={open} title="Change unit no." onClose={onClose}>
+    <Dialog open={open} title={`Change ${name.toLowerCase()}`} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
-        <label className={label}>Unit no.<input className={input} placeholder="Flat, villa or plot number" value={unit} onChange={(e) => setUnit(e.target.value.toUpperCase())} /></label>
+        <label className={label}>{name}<input className={input} placeholder={unitPlaceholder} value={unit} onChange={(e) => setUnit(e.target.value.toUpperCase())} /></label>
         {error && <p role="alert" className={alertBox}>{error}</p>}
         <div className="flex gap-2">
           <button type="submit" className={btnPrimary}>Save</button>

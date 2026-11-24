@@ -111,6 +111,14 @@ func (s *Service) load(ctx context.Context, caseID int64) (Case, error) {
 		return Case{}, fmt.Errorf("cases: load: %w", err)
 	}
 	c := toCase(row)
+	typ, err := s.q.ProjectType(ctx, c.ProjectID)
+	if err != nil {
+		return Case{}, fmt.Errorf("cases: load project type: %w", err)
+	}
+	if typ.Valid {
+		v := typ.String
+		c.ProjectType = &v
+	}
 	if c.BuilderContactID != nil {
 		bc, err := s.q.GetBuilderContact(ctx, *c.BuilderContactID)
 		if err != nil {

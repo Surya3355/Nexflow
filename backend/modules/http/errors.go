@@ -99,6 +99,7 @@ func statusFor(err error) int {
 		errors.Is(err, leads.ErrBuilderContactInvalid),
 		errors.Is(err, customers.ErrNameRequired),
 		errors.Is(err, cases.ErrInvalidUnit),
+		errors.Is(err, cases.ErrUnitRequired),
 		errors.Is(err, cases.ErrInvalidStart),
 		errors.Is(err, cases.ErrBankRequired),
 		errors.Is(err, leads.ErrInvalidResponse),

@@ -845,6 +845,17 @@ func (q *Queries) ProjectHasActiveContact(ctx context.Context, projectID int64) 
 	return column_1, err
 }
 
+const projectType = `-- name: ProjectType :one
+SELECT type FROM projects WHERE id = $1
+`
+
+func (q *Queries) ProjectType(ctx context.Context, id int64) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, projectType, id)
+	var type_ pgtype.Text
+	err := row.Scan(&type_)
+	return type_, err
+}
+
 const searchCustomerIDs = `-- name: SearchCustomerIDs :many
 SELECT DISTINCT c.id, c.name FROM customers c
 LEFT JOIN cases k ON k.customer_id = c.id

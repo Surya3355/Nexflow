@@ -119,6 +119,14 @@ func newProject(t *testing.T, e *env, name, phone string) (int64, int64) {
 	return int64(p["id"].(float64)), int64(c["id"].(float64))
 }
 
+// mustContact returns the first active contact of a project.
+func mustContact(t *testing.T, e *env, project int64) int64 {
+	t.Helper()
+	var id int64
+	mustScan(t, e.pool.QueryRow(context.Background(), `SELECT id FROM project_contacts WHERE project_id = $1 AND removed_at IS NULL ORDER BY id LIMIT 1`, project), &id)
+	return id
+}
+
 func TestChangeCaseProjectRoute(t *testing.T) {
 	e := newEnv(t)
 	pid, contact := newProject(t, e, "Sobha", "9000000011")
@@ -174,6 +182,12 @@ func TestCaseBuilderContactRoute(t *testing.T) {
 	decodeJSON(t, need, &m)
 	if need.StatusCode != http.StatusBadRequest || !strings.Contains(m["error"], "choose a builder contact") {
 		t.Fatalf("case without contact = %d %v", need.StatusCode, m)
+	}
+	body["builder_contact_id"] = mustContact(t, e, pid)
+	noUnit := e.do(e.clients[access.RoleEmployee], "POST", "/api/cases", body)
+	decodeJSON(t, noUnit, &m)
+	if noUnit.StatusCode != http.StatusBadRequest || !strings.Contains(m["error"], "enter the unit number") {
+		t.Fatalf("case without unit = %d %v", noUnit.StatusCode, m)
 	}
 }
 
