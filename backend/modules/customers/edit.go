@@ -21,6 +21,9 @@ var ErrMobileInUse = errors.New("customers: that mobile number belongs to anothe
 // ErrCustomerNotFound is returned when the customer does not exist.
 var ErrCustomerNotFound = errors.New("customers: customer not found")
 
+// ErrNameRequired refuses a customer with an empty name.
+var ErrNameRequired = errors.New("customers: name is required")
+
 // CustomerFields are the editable customer details.
 type CustomerFields struct {
 	Name   string
@@ -40,7 +43,7 @@ func (s *Service) Update(ctx context.Context, actor access.User, customerID int6
 	}
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
-		return Customer{}, errors.New("customers: name is required")
+		return Customer{}, ErrNameRequired
 	}
 	if _, err := s.q.GetCustomer(ctx, customerID); errors.Is(err, pgx.ErrNoRows) {
 		return Customer{}, ErrCustomerNotFound

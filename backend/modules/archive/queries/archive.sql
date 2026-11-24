@@ -47,3 +47,26 @@ VALUES (sqlc.arg(entity_type), sqlc.arg(entity_id), sqlc.arg(snapshot)::jsonb, s
 -- name: ListArchive :many
 SELECT id, entity_type, entity_id, archived_at, purge_after, restored_at
 FROM archive ORDER BY archived_at DESC, id DESC LIMIT 500;
+
+-- name: CountOpenLeads :one
+SELECT count(*) FROM leads WHERE customer_id = $1 AND status = 'open';
+
+-- name: CustomerLeadsJSON :one
+-- Each lead with its contact log, for the customer snapshot.
+SELECT COALESCE(jsonb_agg(to_jsonb(l) || jsonb_build_object('contacts',
+         COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM lead_contacts c WHERE c.lead_id = l.id), '[]'::jsonb))
+       ORDER BY l.id), '[]'::jsonb)::text AS doc
+FROM leads l WHERE l.customer_id = $1;
+
+-- name: DeleteCustomerLeadAlerts :exec
+DELETE FROM alert_log WHERE lead_id IN (SELECT id FROM leads WHERE customer_id = $1);
+
+-- name: DeleteCustomerLeadContacts :exec
+DELETE FROM lead_contacts WHERE lead_id IN (SELECT id FROM leads WHERE customer_id = $1);
+
+-- name: DeleteCustomerLeads :exec
+DELETE FROM leads WHERE customer_id = $1;
+
+-- name: LockCustomerForDelete :one
+-- Waits for anyone adding a lead or case to this customer to finish first.
+SELECT id FROM customers WHERE id = $1 FOR UPDATE;

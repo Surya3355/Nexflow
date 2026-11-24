@@ -14,12 +14,15 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/archive/archivedb"
 	"github.com/Surya3355/nexflow/backend/modules/history"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Errors for hard delete.
 var (
 	ErrCustomerHasCases = errors.New("archive: customer still has live cases; archive them first")
+	// ErrCustomerHasOpenLeads: dropping the customer drops their open leads.
+	ErrCustomerHasOpenLeads = errors.New("archive: this customer has open leads. Drop the customer first")
 	ErrNotFound         = errors.New("archive: record not found")
 )
 
@@ -86,7 +89,7 @@ func (s *Service) DeleteCase(ctx context.Context, actor access.User, caseID int6
 	}); err != nil {
 		return fmt.Errorf("archive: insert: %w", err)
 	}
-	if err := q.DeleteCaseAlerts(txCtx, caseID); err != nil {
+	if err := q.DeleteCaseAlerts(txCtx, pgtype.Int8{Int64: caseID, Valid: true}); err != nil {
 		return fmt.Errorf("archive: alerts: %w", err)
 	}
 	if err := q.DeleteCaseDocuments(txCtx, caseID); err != nil {
@@ -121,6 +124,11 @@ func (s *Service) DeleteCustomer(ctx context.Context, actor access.User, custome
 	q := s.q.WithTx(tx)
 	txCtx := history.WithTx(ctx, tx)
 
+	if _, err := q.LockCustomerForDelete(txCtx, customerID); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("archive: lock customer: %w", err)
+	}
 	customerDoc, err := q.CustomerRowJSON(txCtx, customerID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -135,6 +143,17 @@ func (s *Service) DeleteCustomer(ctx context.Context, actor access.User, custome
 	if live > 0 {
 		return ErrCustomerHasCases
 	}
+	open, err := q.CountOpenLeads(txCtx, customerID)
+	if err != nil {
+		return fmt.Errorf("archive: count leads: %w", err)
+	}
+	if open > 0 {
+		return ErrCustomerHasOpenLeads
+	}
+	leadsDoc, err := q.CustomerLeadsJSON(txCtx, customerID)
+	if err != nil {
+		return fmt.Errorf("archive: read leads: %w", err)
+	}
 	caseIDs, err := q.ArchivedCaseIDs(txCtx, customerID)
 	if err != nil {
 		return fmt.Errorf("archive: case ids: %w", err)
@@ -146,6 +165,7 @@ func (s *Service) DeleteCustomer(ctx context.Context, actor access.User, custome
 	snapshot, err := json.Marshal(map[string]any{
 		"customer": json.RawMessage(customerDoc),
 		"case_ids": caseIDs,
+		"leads":    json.RawMessage(leadsDoc),
 	})
 	if err != nil {
 		return fmt.Errorf("archive: snapshot: %w", err)
@@ -154,6 +174,15 @@ func (s *Service) DeleteCustomer(ctx context.Context, actor access.User, custome
 		EntityType: "customer", EntityID: customerID, Snapshot: snapshot, ArchivedBy: actor.ID,
 	}); err != nil {
 		return fmt.Errorf("archive: insert: %w", err)
+	}
+	if err := q.DeleteCustomerLeadAlerts(txCtx, customerID); err != nil {
+		return fmt.Errorf("archive: delete lead alerts: %w", err)
+	}
+	if err := q.DeleteCustomerLeadContacts(txCtx, customerID); err != nil {
+		return fmt.Errorf("archive: delete lead contacts: %w", err)
+	}
+	if err := q.DeleteCustomerLeads(txCtx, customerID); err != nil {
+		return fmt.Errorf("archive: delete leads: %w", err)
 	}
 	if err := q.DeleteCustomerRow(txCtx, customerID); err != nil {
 		return fmt.Errorf("archive: delete customer: %w", err)

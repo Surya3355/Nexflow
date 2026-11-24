@@ -37,7 +37,7 @@ describe("New case from a customer", () => {
     await userEvent.click(within(dialog).getByRole("option", { name: "Prestige" }));
     await userEvent.click(screen.getByRole("button", { name: "Open case" }));
     await waitFor(() => expect(bodyOf(spy, "POST /api/cases")).toEqual({
-      customer_id: 5, bank_id: 1, project_id: 4, loan_amount: "2500000", assignee_id: 3,
+      customer_id: 5, bank_id: 1, project_id: 4, loan_amount: "2500000", assignee_id: 3, unit_number: "", start_at: "received", tracking_number: "",
     }));
     expect(await screen.findByText("Case 21 page")).toBeInTheDocument();
   });

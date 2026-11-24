@@ -98,7 +98,8 @@ func (s *Service) Restore(ctx context.Context, actor access.User, archiveID int6
 
 func (s *Service) restoreCustomer(ctx context.Context, tx pgx.Tx, snapshot []byte, reason DropInput) (RestoredRef, error) {
 	var snap struct {
-		Customer json.RawMessage `json:"customer"`
+		Customer json.RawMessage   `json:"customer"`
+		Leads    []json.RawMessage `json:"leads"`
 	}
 	if err := json.Unmarshal(snapshot, &snap); err != nil {
 		return RestoredRef{}, fmt.Errorf("archive: customer snapshot: %w", err)
@@ -132,6 +133,9 @@ func (s *Service) restoreCustomer(ctx context.Context, tx pgx.Tx, snapshot []byt
 			head.ID, reasonID, strings.TrimSpace(reason.Remark)); err != nil {
 			return RestoredRef{}, fmt.Errorf("archive: drop restored customer: %w", err)
 		}
+	}
+	if err := restoreLeads(ctx, tx, head.ID, snap.Leads); err != nil {
+		return RestoredRef{}, err
 	}
 	return RestoredRef{EntityType: "customer", EntityID: head.ID}, nil
 }
@@ -169,6 +173,9 @@ func (s *Service) restoreCase(ctx context.Context, tx pgx.Tx, snapshot []byte, r
 
 	caseJSON, err := withDefaultProject(ctx, tx, snap.Case)
 	if err != nil {
+		return RestoredRef{}, err
+	}
+	if caseJSON, err = withUsableLead(ctx, tx, caseJSON); err != nil {
 		return RestoredRef{}, err
 	}
 	_, err = tx.Exec(ctx,
@@ -261,4 +268,71 @@ func withDefaultProject(ctx context.Context, tx pgx.Tx, raw json.RawMessage) (js
 		return nil, fmt.Errorf("archive: case json: %w", err)
 	}
 	return out, nil
+}
+
+// restoreLeads puts a customer's archived leads and contact logs back. Every
+// lead comes back dropped: an open or converted lead takes the restored
+// customer's drop reason (spec 2026-11-23 §4.7). Old snapshots have no leads.
+func restoreLeads(ctx context.Context, tx pgx.Tx, customerID int64, leadDocs []json.RawMessage) error {
+	for _, doc := range leadDocs {
+		var lead map[string]json.RawMessage
+		if err := json.Unmarshal(doc, &lead); err != nil {
+			return fmt.Errorf("archive: lead json: %w", err)
+		}
+		contacts := lead["contacts"]
+		delete(lead, "contacts")
+		row, err := json.Marshal(lead)
+		if err != nil {
+			return fmt.Errorf("archive: lead json: %w", err)
+		}
+		var id int64
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO leads OVERRIDING SYSTEM VALUE
+			 SELECT * FROM jsonb_populate_record(NULL::leads, $1::jsonb) RETURNING id`, string(row)).Scan(&id); err != nil {
+			return fmt.Errorf("archive: insert lead: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE leads l SET status = 'dropped', next_call_date = NULL,
+			   dropped_reason_id = c.dropped_reason_id, dropped_remark = c.dropped_remark, dropped_at = now(), dropped_by = NULL
+			 FROM customers c WHERE l.id = $1 AND c.id = $2 AND l.status <> 'dropped'`, id, customerID); err != nil {
+			return fmt.Errorf("archive: drop restored lead: %w", err)
+		}
+		if len(contacts) > 0 {
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO lead_contacts OVERRIDING SYSTEM VALUE
+				 SELECT * FROM jsonb_populate_recordset(NULL::lead_contacts, $1::jsonb)`, string(contacts)); err != nil {
+				return fmt.Errorf("archive: restore lead contacts: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// withUsableLead clears a restored case's lead_id unless that lead still
+// exists and no other case uses it.
+func withUsableLead(ctx context.Context, tx pgx.Tx, raw json.RawMessage) (json.RawMessage, error) {
+	var row map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &row); err != nil {
+		return nil, fmt.Errorf("archive: case json: %w", err)
+	}
+	var leadID *int64
+	if v, ok := row["lead_id"]; ok {
+		if err := json.Unmarshal(v, &leadID); err != nil {
+			return nil, fmt.Errorf("archive: case lead: %w", err)
+		}
+	}
+	if leadID == nil {
+		return raw, nil
+	}
+	var usable bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM leads WHERE id = $1) AND NOT EXISTS (SELECT 1 FROM cases WHERE lead_id = $1)`,
+		*leadID).Scan(&usable); err != nil {
+		return nil, fmt.Errorf("archive: lead check: %w", err)
+	}
+	if usable {
+		return raw, nil
+	}
+	row["lead_id"] = json.RawMessage("null")
+	return json.Marshal(row)
 }

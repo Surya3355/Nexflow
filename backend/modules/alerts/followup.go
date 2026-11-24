@@ -13,13 +13,15 @@ var istZone = time.FixedZone("IST", 5*60*60+30*60)
 
 // FollowUpResult counts the follow-up alerts queued by one run.
 type FollowUpResult struct {
-	Due     int
-	Overdue int
+	Due         int
+	Overdue     int
+	LeadDue     int
+	LeadOverdue int
 }
 
 // RunFollowUps queues follow-up alerts for the IST day of now (spec §10):
 // a due alert on the follow-up date, and an overdue alert on the day after.
-// Only active cases get them, and each alert is queued once (plan Task 30).
+// Open leads get the same alerts for their next call date. Only active cases get them, and each alert is queued once (plan Task 30).
 func (q *Queue) RunFollowUps(ctx context.Context, now time.Time) (FollowUpResult, error) {
 	local := now.In(istZone)
 	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
@@ -34,5 +36,13 @@ func (q *Queue) RunFollowUps(ctx context.Context, now time.Time) (FollowUpResult
 	if err != nil {
 		return FollowUpResult{}, fmt.Errorf("alerts: overdue: %w", err)
 	}
-	return FollowUpResult{Due: int(due), Overdue: int(overdue)}, nil
+	leadDue, err := db.QueueLeadCallDue(ctx, pgtype.Date{Time: today, Valid: true})
+	if err != nil {
+		return FollowUpResult{}, fmt.Errorf("alerts: lead due: %w", err)
+	}
+	leadOverdue, err := db.QueueLeadCallOverdue(ctx, pgtype.Date{Time: yesterday, Valid: true})
+	if err != nil {
+		return FollowUpResult{}, fmt.Errorf("alerts: lead overdue: %w", err)
+	}
+	return FollowUpResult{Due: int(due), Overdue: int(overdue), LeadDue: int(leadDue), LeadOverdue: int(leadOverdue)}, nil
 }

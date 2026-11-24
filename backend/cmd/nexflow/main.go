@@ -17,6 +17,7 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
+	"github.com/Surya3355/nexflow/backend/modules/leads"
 	"github.com/Surya3355/nexflow/backend/modules/history"
 	apihttp "github.com/Surya3355/nexflow/backend/modules/http"
 	"github.com/Surya3355/nexflow/backend/modules/reports"
@@ -57,6 +58,8 @@ func main() {
 	wf := workflows.NewService(pool, rec)
 	caseSvc := cases.NewService(pool, wf, rec)
 	caseSvc.SetNotifier(queue)
+	leadSvc := leads.NewService(pool, rec)
+	leadSvc.SetNotifier(queue)
 	archiveSvc := archive.NewService(pool, rec)
 	archiveSvc.SetFileRemover(store)
 
@@ -70,6 +73,7 @@ func main() {
 		Linker:    documents.NewLinker(cfg.LinkSecret),
 		Archive:   archiveSvc,
 		Reports:   reports.NewService(pool),
+		Leads:     leadSvc,
 	})
 
 	jobs := Jobs{Archive: archiveSvc, Queue: queue, Sender: unconfiguredSender{}}

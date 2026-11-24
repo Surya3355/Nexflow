@@ -5,6 +5,7 @@ import { TopBar } from "./components/TopBar";
 import { Login, type SignedInUser } from "./pages/Login";
 import { Home } from "./pages/Home";
 import { CaseDetail } from "./pages/CaseDetail";
+import { LeadDetail } from "./pages/LeadDetail";
 import { CustomerDetail } from "./pages/CustomerDetail";
 import { AdminHome } from "./pages/admin/AdminHome";
 import { Reports } from "./pages/Reports";
@@ -65,6 +66,7 @@ export default function App() {
         <Route path="/reports" element={<Reports />} />
         <Route path="/cases/:id" element={<CaseDetail />} />
         <Route path="/customers/:id" element={<CustomerDetail />} />
+        <Route path="/leads/:id" element={<LeadDetail />} />
         <Route
           path="/admin"
           element={user.role === "admin" ? <AdminHome role={user.role} /> : <Navigate to="/" replace />}

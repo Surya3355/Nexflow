@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
-import type { AttentionItem, DashboardData } from "../../api/types";
+import type { AttentionItem, DashboardData, LeadRow } from "../../api/types";
 import { card } from "../../components/ui";
+import { callReason } from "./LeadList";
 
 function Stat({ label, value }: { label: string; value: number | undefined }) {
   return (
@@ -12,7 +13,7 @@ function Stat({ label, value }: { label: string; value: number | undefined }) {
 }
 
 /** Today's numbers and the cases that need attention, beside the list on wide screens. */
-export function TodayPanel({ data, attention }: { data: DashboardData | null; attention: AttentionItem[] }) {
+export function TodayPanel({ data, attention, leads = [] }: { data: DashboardData | null; attention: AttentionItem[]; leads?: LeadRow[] }) {
   return (
     <aside className="space-y-4 min-[1100px]:sticky min-[1100px]:top-4">
       <section aria-label="Today" className={`${card} hidden min-[760px]:block`}>
@@ -25,7 +26,7 @@ export function TodayPanel({ data, attention }: { data: DashboardData | null; at
       </section>
       <section aria-label="Needs attention" className={`${card} hidden min-[760px]:block`}>
         <h2 className="mb-1 font-semibold">Needs attention</h2>
-        {attention.length === 0 ? (
+        {attention.length + leads.length === 0 ? (
           <p className="text-sm text-slate-500">Nothing waiting.</p>
         ) : (
           <ul className="divide-y divide-slate-200">
@@ -34,6 +35,14 @@ export function TodayPanel({ data, attention }: { data: DashboardData | null; at
                 <Link to={`/cases/${a.id}`} className="block py-2 text-sm text-slate-900">
                   <b>{a.customer_name}</b>
                   <span className="block text-slate-500">{a.reason}</span>
+                </Link>
+              </li>
+            ))}
+            {leads.slice(0, Math.max(0, 5 - attention.length)).map((l) => (
+              <li key={`lead-${l.id}`}>
+                <Link to={`/leads/${l.id}`} className="block py-2 text-sm text-slate-900">
+                  <b>{l.customer_name}</b>
+                  <span className="block text-slate-500">{callReason(l)}</span>
                 </Link>
               </li>
             ))}

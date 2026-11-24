@@ -1,13 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { Bank, Case, Customer, Project, StaffUser } from "../api/types";
+import type { Customer, LeadRow } from "../api/types";
 import { Badge } from "../components/Badge";
+import { AddCaseDialog } from "../components/AddCaseDialog";
+import { NewLeadDialog } from "./lead/NewLeadDialog";
+import { ResponseBadge, shortDay } from "./home/LeadList";
 import { Dialog } from "../components/Dialog";
 import { DropDialog } from "../components/DropDialog";
 import { ProgressBar } from "../components/ProgressBar";
-import { ProjectPicker } from "../components/ProjectPicker";
-import { alertBox, btn, btnDanger, btnPrimary, card, input, label, muted, page, rupees } from "../components/ui";
+import { alertBox, btn, btnDanger, btnPrimary, btnSmall, card, input, label, muted, page, rupees } from "../components/ui";
 
 /** One customer: contact details, their cases, and edit / new case / drop (spec §5.3). */
 export function CustomerDetail() {
@@ -17,6 +19,7 @@ export function CustomerDetail() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [opening, setOpening] = useState(false);
+  const [addingLead, setAddingLead] = useState(false);
   const [dropping, setDropping] = useState(false);
   const [bringError, setBringError] = useState<string | null>(null);
   const [bringing, setBringing] = useState(false);
@@ -52,6 +55,7 @@ export function CustomerDetail() {
     }
   }
   const cases = customer.cases ?? [];
+  const leads = customer.leads ?? [];
 
   return (
     <main className={`${page} max-w-[980px]`}>
@@ -59,7 +63,7 @@ export function CustomerDetail() {
 
       <section className={`${card} flex flex-wrap items-center justify-between gap-3`}>
         <div>
-          <h1 className="text-xl font-semibold">{customer.name}</h1>
+          <h1 className="text-2xl font-bold">{customer.name}</h1>
           <p className={`${muted} mt-1`}>
             {customer.mobile}{customer.email ? ` · ${customer.email}` : ""}
             {!active && <> · <Badge tone="bad">Dropped</Badge></>}
@@ -76,6 +80,12 @@ export function CustomerDetail() {
         </div>
         {bringError && <p role="alert" className={`${alertBox} w-full`}>{bringError}</p>}
       </section>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-semibold">Leads ({leads.length})</h2>
+        {active && <button type="button" className={btnSmall} onClick={() => setAddingLead(true)}>+ New lead</button>}
+      </div>
+      {leads.length === 0 ? <p className={`${card} ${muted}`}>No leads.</p> : <CustomerLeads leads={leads} />}
 
       <h2 className="font-semibold">Cases ({cases.length})</h2>
       {cases.length === 0 ? (
@@ -109,7 +119,9 @@ export function CustomerDetail() {
       {active && <button type="button" className={btnDanger} onClick={() => setDropping(true)}>Drop customer…</button>}
 
       <EditCustomerDialog open={editing} customer={customer} onClose={() => setEditing(false)} onSaved={(c) => { setCustomer({ ...customer, ...c }); setEditing(false); }} />
-      <NewCaseDialog open={opening} customerId={customer.id} onClose={() => setOpening(false)} onOpened={(c) => navigate(`/cases/${c.id}`)} />
+      <NewLeadDialog open={addingLead} customerId={customer.id} customerName={customer.name} assigneeId={leads[0]?.assignee_id ?? cases[0]?.assignee_id ?? 0}
+        onClose={() => setAddingLead(false)} onSaved={(l) => navigate(`/leads/${l.id}`)} />
+      <AddCaseDialog open={opening} customerId={customer.id} customerName={customer.name} onClose={() => setOpening(false)} onSaved={(c) => navigate(`/cases/${c.id}`)} />
       <DropDialog
         open={dropping}
         title={`Drop ${customer.name}?`}
@@ -168,66 +180,21 @@ function EditCustomerDialog({ open, customer, onClose, onSaved }: {
   );
 }
 
-function NewCaseDialog({ open, customerId, onClose, onOpened }: {
-  open: boolean; customerId: number; onClose: () => void; onOpened: (c: Case) => void;
-}) {
-  const [banks, setBanks] = useState<Bank[]>([]);
-  const [users, setUsers] = useState<StaffUser[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [bankId, setBankId] = useState("");
-  const [projectId, setProjectId] = useState<number | null>(null);
-  const [amount, setAmount] = useState("");
-  const [assigneeId, setAssigneeId] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.request<Bank[]>("GET", "/api/config/banks").then(setBanks).catch(() => setBanks([]));
-    api.request<StaffUser[]>("GET", "/api/users").then(setUsers).catch(() => setUsers([]));
-    api.request<Project[]>("GET", "/api/config/projects").then(setProjects).catch(() => setProjects([]));
-  }, []);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    if (projectId === null) {
-      setError("Choose a project, or NA.");
-      return;
-    }
-    try {
-      const c = await api.request<Case>("POST", "/api/cases", {
-        customer_id: customerId, bank_id: Number(bankId), project_id: projectId, loan_amount: amount.trim(), assignee_id: Number(assigneeId),
-      });
-      onOpened(c);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not open the case.");
-    }
-  }
-
+function CustomerLeads({ leads }: { leads: LeadRow[] }) {
   return (
-    <Dialog open={open} title="New case" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
-        <label className={label}>Bank
-          <select aria-label="Bank for new case" className={input} value={bankId} onChange={(e) => setBankId(e.target.value)}>
-            <option value="">Choose a bank</option>
-            {banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-        </label>
-        <div className={label}>Project
-          <ProjectPicker projects={projects} value={projectId} onChange={setProjectId} aria-label="Project" />
-        </div>
-        <label className={label}>Loan amount (₹)<input inputMode="decimal" className={input} value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
-        <label className={label}>Assigned to
-          <select aria-label="Assigned to for new case" className={input} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-            <option value="">Choose a person</option>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-          </select>
-        </label>
-        {error && <p role="alert" className={alertBox}>{error}</p>}
-        <div className="flex gap-2">
-          <button type="submit" className={btnPrimary}>Open case</button>
-          <button type="button" className={btn} onClick={onClose}>Cancel</button>
-        </div>
-      </form>
-    </Dialog>
+    <ul className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white">
+      {leads.map((l) => (
+        <li key={l.id}>
+          <Link to={`/leads/${l.id}`} className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 px-4 py-3 text-sm text-slate-900 hover:bg-slate-50">
+            <b>{l.project_name}</b>
+            <span className="text-right">
+              {l.status === "open" ? <ResponseBadge lead={l} /> : l.status === "converted" ? <Badge tone="ok">Case opened</Badge> : <Badge tone="bad">Dropped</Badge>}
+            </span>
+            <span className="text-slate-500">Assigned to {l.assignee_name}</span>
+            <span className="text-right text-slate-500">{l.status === "open" && l.next_call_date ? `Next call ${shortDay(l.next_call_date)}` : ""}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }

@@ -12,9 +12,9 @@ import (
 )
 
 const attentionCases = `-- name: AttentionCases :many
-SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id, customer_name, customer_mobile, bank_name, project_name, stage_name, stage_code, stage_order, stage_count, assignee_name, stage_since, needs_document FROM (
+SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id, lead_id, unit_number, customer_name, customer_mobile, bank_name, project_name, stage_name, stage_code, stage_order, stage_count, assignee_name, stage_since, needs_document FROM (
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
-       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id,
+       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
        s.name AS stage_name, s.code AS stage_code,
        (SELECT count(*) FROM stages x
@@ -59,6 +59,8 @@ type AttentionCasesRow struct {
 	CreatedAt      pgtype.Timestamptz
 	FollowUpDate   pgtype.Date
 	ProjectID      int64
+	LeadID         pgtype.Int8
+	UnitNumber     pgtype.Text
 	CustomerName   string
 	CustomerMobile string
 	BankName       string
@@ -96,6 +98,8 @@ func (q *Queries) AttentionCases(ctx context.Context, arg AttentionCasesParams) 
 			&i.CreatedAt,
 			&i.FollowUpDate,
 			&i.ProjectID,
+			&i.LeadID,
+			&i.UnitNumber,
 			&i.CustomerName,
 			&i.CustomerMobile,
 			&i.BankName,
@@ -116,6 +120,17 @@ func (q *Queries) AttentionCases(ctx context.Context, arg AttentionCasesParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const bankExists = `-- name: BankExists :one
+SELECT EXISTS (SELECT 1 FROM banks WHERE id = $1)
+`
+
+func (q *Queries) BankExists(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, bankExists, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const caseStageHistory = `-- name: CaseStageHistory :many
@@ -162,7 +177,8 @@ func (q *Queries) CaseStageHistory(ctx context.Context, caseID int64) ([]CaseSta
 }
 
 const casesForCustomer = `-- name: CasesForCustomer :many
-SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id
+SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
+       lead_id, unit_number
 FROM cases WHERE customer_id = $1 ORDER BY created_at, id
 `
 
@@ -178,6 +194,8 @@ type CasesForCustomerRow struct {
 	CreatedAt      pgtype.Timestamptz
 	FollowUpDate   pgtype.Date
 	ProjectID      int64
+	LeadID         pgtype.Int8
+	UnitNumber     pgtype.Text
 }
 
 func (q *Queries) CasesForCustomer(ctx context.Context, customerID int64) ([]CasesForCustomerRow, error) {
@@ -201,6 +219,8 @@ func (q *Queries) CasesForCustomer(ctx context.Context, customerID int64) ([]Cas
 			&i.CreatedAt,
 			&i.FollowUpDate,
 			&i.ProjectID,
+			&i.LeadID,
+			&i.UnitNumber,
 		); err != nil {
 			return nil, err
 		}
@@ -271,7 +291,8 @@ func (q *Queries) DropCase(ctx context.Context, arg DropCaseParams) error {
 }
 
 const getCase = `-- name: GetCase :one
-SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id
+SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
+       lead_id, unit_number
 FROM cases WHERE id = $1
 `
 
@@ -287,6 +308,8 @@ type GetCaseRow struct {
 	CreatedAt      pgtype.Timestamptz
 	FollowUpDate   pgtype.Date
 	ProjectID      int64
+	LeadID         pgtype.Int8
+	UnitNumber     pgtype.Text
 }
 
 func (q *Queries) GetCase(ctx context.Context, id int64) (GetCaseRow, error) {
@@ -304,6 +327,8 @@ func (q *Queries) GetCase(ctx context.Context, id int64) (GetCaseRow, error) {
 		&i.CreatedAt,
 		&i.FollowUpDate,
 		&i.ProjectID,
+		&i.LeadID,
+		&i.UnitNumber,
 	)
 	return i, err
 }
@@ -336,9 +361,10 @@ func (q *Queries) GetUserActive(ctx context.Context, id int64) (bool, error) {
 }
 
 const insertCase = `-- name: InsertCase :one
-INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, created_by, updated_by, project_id)
-VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
-RETURNING id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, project_id
+INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, created_by, updated_by, project_id,
+                   tracking_number, lead_id, unit_number)
+VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10)
+RETURNING id
 `
 
 type InsertCaseParams struct {
@@ -349,22 +375,12 @@ type InsertCaseParams struct {
 	AssigneeID     int64
 	CreatedBy      pgtype.Int8
 	ProjectID      int64
-}
-
-type InsertCaseRow struct {
-	ID             int64
-	CustomerID     int64
-	BankID         int64
-	LoanAmount     pgtype.Numeric
 	TrackingNumber pgtype.Text
-	CurrentStageID int64
-	AssigneeID     int64
-	Status         string
-	CreatedAt      pgtype.Timestamptz
-	ProjectID      int64
+	LeadID         pgtype.Int8
+	UnitNumber     pgtype.Text
 }
 
-func (q *Queries) InsertCase(ctx context.Context, arg InsertCaseParams) (InsertCaseRow, error) {
+func (q *Queries) InsertCase(ctx context.Context, arg InsertCaseParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertCase,
 		arg.CustomerID,
 		arg.BankID,
@@ -373,21 +389,13 @@ func (q *Queries) InsertCase(ctx context.Context, arg InsertCaseParams) (InsertC
 		arg.AssigneeID,
 		arg.CreatedBy,
 		arg.ProjectID,
+		arg.TrackingNumber,
+		arg.LeadID,
+		arg.UnitNumber,
 	)
-	var i InsertCaseRow
-	err := row.Scan(
-		&i.ID,
-		&i.CustomerID,
-		&i.BankID,
-		&i.LoanAmount,
-		&i.TrackingNumber,
-		&i.CurrentStageID,
-		&i.AssigneeID,
-		&i.Status,
-		&i.CreatedAt,
-		&i.ProjectID,
-	)
-	return i, err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertCaseAssignmentEvent = `-- name: InsertCaseAssignmentEvent :exec
@@ -484,7 +492,7 @@ func (q *Queries) InsertCaseStageEventAt(ctx context.Context, arg InsertCaseStag
 
 const listCaseRows = `-- name: ListCaseRows :many
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
-       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id,
+       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
        s.name AS stage_name, s.code AS stage_code,
        (SELECT count(*) FROM stages x
@@ -536,6 +544,8 @@ type ListCaseRowsRow struct {
 	CreatedAt      pgtype.Timestamptz
 	FollowUpDate   pgtype.Date
 	ProjectID      int64
+	LeadID         pgtype.Int8
+	UnitNumber     pgtype.Text
 	CustomerName   string
 	CustomerMobile string
 	BankName       string
@@ -580,6 +590,8 @@ func (q *Queries) ListCaseRows(ctx context.Context, arg ListCaseRowsParams) ([]L
 			&i.CreatedAt,
 			&i.FollowUpDate,
 			&i.ProjectID,
+			&i.LeadID,
+			&i.UnitNumber,
 			&i.CustomerName,
 			&i.CustomerMobile,
 			&i.BankName,
@@ -603,7 +615,8 @@ func (q *Queries) ListCaseRows(ctx context.Context, arg ListCaseRowsParams) ([]L
 }
 
 const listCases = `-- name: ListCases :many
-SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id
+SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
+       lead_id, unit_number
 FROM cases
 WHERE ($1::bigint IS NULL OR current_stage_id = $1::bigint)
   AND ($2::bigint IS NULL OR bank_id = $2::bigint)
@@ -635,6 +648,8 @@ type ListCasesRow struct {
 	CreatedAt      pgtype.Timestamptz
 	FollowUpDate   pgtype.Date
 	ProjectID      int64
+	LeadID         pgtype.Int8
+	UnitNumber     pgtype.Text
 }
 
 // Each filter is optional (NULL means no filter). Filters combine with AND.
@@ -667,6 +682,8 @@ func (q *Queries) ListCases(ctx context.Context, arg ListCasesParams) ([]ListCas
 			&i.CreatedAt,
 			&i.FollowUpDate,
 			&i.ProjectID,
+			&i.LeadID,
+			&i.UnitNumber,
 		); err != nil {
 			return nil, err
 		}
@@ -719,6 +736,44 @@ func (q *Queries) LockCustomerStatus(ctx context.Context, id int64) (string, err
 	var status string
 	err := row.Scan(&status)
 	return status, err
+}
+
+const lockLeadForCase = `-- name: LockLeadForCase :one
+SELECT id, customer_id, project_id, status FROM leads WHERE id = $1 FOR UPDATE
+`
+
+type LockLeadForCaseRow struct {
+	ID         int64
+	CustomerID int64
+	ProjectID  int64
+	Status     string
+}
+
+func (q *Queries) LockLeadForCase(ctx context.Context, id int64) (LockLeadForCaseRow, error) {
+	row := q.db.QueryRow(ctx, lockLeadForCase, id)
+	var i LockLeadForCaseRow
+	err := row.Scan(
+		&i.ID,
+		&i.CustomerID,
+		&i.ProjectID,
+		&i.Status,
+	)
+	return i, err
+}
+
+const markLeadConverted = `-- name: MarkLeadConverted :exec
+UPDATE leads SET status = 'converted', converted_at = now(), next_call_date = NULL, updated_at = now(), updated_by = $2
+WHERE id = $1
+`
+
+type MarkLeadConvertedParams struct {
+	ID        int64
+	UpdatedBy pgtype.Int8
+}
+
+func (q *Queries) MarkLeadConverted(ctx context.Context, arg MarkLeadConvertedParams) error {
+	_, err := q.db.Exec(ctx, markLeadConverted, arg.ID, arg.UpdatedBy)
+	return err
 }
 
 const searchCustomerIDs = `-- name: SearchCustomerIDs :many
@@ -874,6 +929,21 @@ func (q *Queries) SetCaseStage(ctx context.Context, arg SetCaseStageParams) erro
 		arg.UpdatedBy,
 		arg.TrackingNumber,
 	)
+	return err
+}
+
+const setCaseUnit = `-- name: SetCaseUnit :exec
+UPDATE cases SET unit_number = $2, updated_at = now(), updated_by = $3 WHERE id = $1
+`
+
+type SetCaseUnitParams struct {
+	ID         int64
+	UnitNumber pgtype.Text
+	UpdatedBy  pgtype.Int8
+}
+
+func (q *Queries) SetCaseUnit(ctx context.Context, arg SetCaseUnitParams) error {
+	_, err := q.db.Exec(ctx, setCaseUnit, arg.ID, arg.UnitNumber, arg.UpdatedBy)
 	return err
 }
 

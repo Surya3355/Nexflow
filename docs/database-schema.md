@@ -115,8 +115,36 @@ A customer that still has cases cannot be hard-deleted (round 1, §10). Enforced
 | disbursed_amount | numeric(14,2) | nullable. Set at Disbursed |
 | disbursement_date | date | nullable |
 | created_at | timestamptz | not null. Used for "cases created today" (round 9) |
+| project_id | bigint | not null, FK `projects.id`. NA for loans without a builder project (round 14) |
+| lead_id | bigint | nullable, unique, FK `leads.id` `ON DELETE SET NULL`. The lead this case came from (round 15) |
+| unit_number | text | nullable, ≤ 20 characters. Flat, villa or plot number, saved in capitals (round 15) |
 
 Indexes: `customer_id`, `bank_id`, `current_stage_id`, `assignee_id`, `created_at`, `follow_up_date`.
+
+### leads (round 15, migration 000005)
+An enquiry for one builder project, before the customer comes in. Spec `docs/superpowers/specs/2026-11-23-leads-and-case-page-design.md`.
+| Column | Type | Rules |
+|---|---|---|
+| customer_id | bigint | not null, FK `customers.id`, `ON DELETE RESTRICT` |
+| project_id | bigint | not null, FK `projects.id` (NA allowed) |
+| assignee_id | bigint | not null, FK `users.id` |
+| status | text | `open`, `converted`, `dropped` |
+| next_call_date | date | nullable. IST day; drives call due/overdue emails. Set to the day the lead is added; each contact replaces it |
+| dropped_reason_id, dropped_remark, dropped_at, dropped_by | | As on cases. Reason required when dropped |
+| converted_at | timestamptz | nullable. Set when Add case turns the lead into a case |
+| created_at/by, updated_at/by | | Usual |
+
+Indexes: `customer_id`; `next_call_date` where open; unique `(customer_id, project_id)` where open (one open lead per project).
+
+### lead_contacts (round 15)
+Contact log. The app only inserts; the archive removes rows with their customer.
+| Column | Type | Rules |
+|---|---|---|
+| lead_id | bigint | not null, FK `leads.id` |
+| response | text | `interested`, `call_back`, `not_reachable`, `not_interested` |
+| remark | text | not null, not blank |
+| next_call_date | date | nullable |
+| created_at, created_by | | When and who |
 
 Milestone dates for reports come from `case_stage_events` (round 2), not from the columns above. The sanction and disbursement columns are the values captured at those stages.
 
@@ -201,13 +229,14 @@ Index: `(entity_type, entity_id)`, `occurred_at`. Application database role has 
 Prevents the same email from being sent twice.
 | Column | Type | Rules |
 |---|---|---|
-| case_id | bigint | not null, FK `cases.id` |
+| case_id | bigint | nullable, FK `cases.id` |
+| lead_id | bigint | nullable, FK `leads.id` (round 15). Exactly one of `case_id`, `lead_id` is set |
 | recipient_user_id | bigint | not null, FK `users.id` |
 | kind | text | `assigned`, `follow_up_due`, `follow_up_overdue` |
 | due_on | date | nullable. The follow-up date the alert is for |
 | sent_at | timestamptz | not null |
 
-Unique `(case_id, kind, due_on, recipient_user_id)`.
+Unique `(case_id, kind, due_on, recipient_user_id)` where `case_id` is set, and `(lead_id, kind, due_on, recipient_user_id)` where `lead_id` is set (round 15).
 
 ---
 

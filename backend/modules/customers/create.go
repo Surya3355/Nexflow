@@ -66,7 +66,7 @@ func (s *Service) Create(ctx context.Context, actor access.User, in NewCustomer)
 	}
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
-		return CreateResult{}, errors.New("customers: name is required")
+		return CreateResult{}, ErrNameRequired
 	}
 
 	row, err := s.q.InsertCustomer(ctx, customersdb.InsertCustomerParams{

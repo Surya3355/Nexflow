@@ -21,6 +21,7 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
 	"github.com/Surya3355/nexflow/backend/modules/history"
+	"github.com/Surya3355/nexflow/backend/modules/leads"
 	"github.com/Surya3355/nexflow/backend/modules/reports"
 	"github.com/Surya3355/nexflow/backend/modules/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -61,6 +62,7 @@ func newEnv(t *testing.T) *env {
 		Linker:    documents.NewLinker([]byte("route-test-secret-0123456789abcd")),
 		Archive:   archive.NewService(pool, rec),
 		Reports:   reports.NewService(pool),
+		Leads:     leads.NewService(pool, rec),
 	})
 	e.srv = httptest.NewServer(handler)
 	t.Cleanup(e.srv.Close)

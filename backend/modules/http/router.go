@@ -9,6 +9,7 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
+	"github.com/Surya3355/nexflow/backend/modules/leads"
 	"github.com/Surya3355/nexflow/backend/modules/reports"
 	"github.com/Surya3355/nexflow/backend/modules/workflows"
 	"github.com/go-chi/chi/v5"
@@ -25,6 +26,7 @@ type Deps struct {
 	Linker    *documents.Linker
 	Archive   *archive.Service
 	Reports   *reports.Service
+	Leads     *leads.Service
 }
 
 // NewRouter returns the full API under /api. Login and the download link are
@@ -71,6 +73,16 @@ func NewRouter(d Deps) http.Handler {
 		r.Post("/api/customers/{id}/reactivate", h.reactivateCustomer)
 		r.Delete("/api/customers/{id}", h.deleteCustomer)
 
+		r.Post("/api/leads", h.createLead)
+		r.Get("/api/leads", h.listLeads)
+		r.Get("/api/leads/{id}", h.getLead)
+		r.Post("/api/leads/{id}/contacts", h.logLeadContact)
+		r.Post("/api/leads/{id}/assign", h.assignLead)
+		r.Post("/api/leads/{id}/drop", h.dropLead)
+		r.Post("/api/leads/{id}/bring-back", h.bringBackLead)
+		r.Post("/api/leads/{id}/case", h.leadToCase)
+		r.Post("/api/customers/{id}/leads", h.addCustomerLead)
+
 		r.Post("/api/cases", h.createCase)
 		r.Get("/api/cases", h.listCases)
 		r.Get("/api/cases/attention", h.caseAttention)
@@ -81,6 +93,7 @@ func NewRouter(d Deps) http.Handler {
 		r.Post("/api/cases/{id}/stage", h.changeStage)
 		r.Post("/api/cases/{id}/assign", h.assignCase)
 		r.Post("/api/cases/{id}/project", h.changeCaseProject)
+		r.Post("/api/cases/{id}/unit", h.setCaseUnit)
 		r.Post("/api/cases/{id}/drop", h.dropCase)
 		r.Delete("/api/cases/{id}", h.deleteCase)
 		r.Get("/api/cases/{id}/documents", h.listDocuments)

@@ -187,12 +187,20 @@ Each stage keeps its own date so that reports can use milestone dates.
 - **Tracking number:** letters and digits only, saved in capitals.
 - Spec: `docs/superpowers/specs/2026-11-21-projects-and-fixes-design.md`.
 
+## 10m. Round 15 requests (2026-11-22, not yet designed)
+
+- Owner asked for leads (name, mobile, project, assignee; shown on Home), lead to Received with bank, amount and unit number, project details (type, address, contact), a Home filter, and HDFC bank work (officer list, strict stages with proof, bank queries). This reopens O2 (no separate lead record).
+- Notes and task list: `docs/superpowers/specs/2026-11-22-round-15-backlog.md`. Nothing here is decided until each task is designed with the owner.
+- **Leads (tasks 1 and 2), approved 2026-11-23** (spec `2026-11-23-leads-and-case-page-design.md`): New customer = name, mobile, email (optional), project, assigned to → a **lead** on Home (Leads chip). Lead page: Log contact (response, remark required, next call date), Add case (bank, amount, unit no., start at Received or Logged in; the lead becomes the case), + New project (another lead), Drop with the case drop reasons, Bring back. One open lead per customer and project. A new lead's call is due the day it is added; due and overdue calls show in Needs attention and send reminder emails. Leads are a separate record (supersedes O2). Existing customers with no case became leads on NA.
+- **Restored lead (2026-11-24):** when a deleted lead and its case are both restored by admin, the lead stays **Dropped** (same as cases, O10). Staff then need to move it to the right stage. Today stages cannot go backwards and a dropped item cannot be reopened to a chosen stage. **Open, to design later:** a way to reopen or move a restored lead or case back to the right stage.
+- **Case page:** customer name large on top, case number and bank below, details in normal text size, project shown once (in Details), unit no. editable, contact log shown when the case came from a lead, "+ New case" for the same customer.
+
 ## 11. Open questions
 
 | # | Topic | Question |
 |---|---|---|
 | O1 | Tracking number | **Resolved.** "Logged in" = submitted to the bank; the bank issues the loan application number, which is the tracking number. |
-| O2 | Lead lifecycle | **Superseded (round 9).** No separate lead record. Customer and case only. |
+| O2 | Lead lifecycle | **Superseded (round 15).** Leads are a separate record again: open, converted (Add case) or dropped, with a contact log. Round 9's "no separate lead record" no longer applies. |
 | O3 | Bank stages | **Resolved for v1.** Admin sets bank stages in configuration. Banks without their own stages use the standard stages. Actual HDFC and SBI stage lists are still to be entered by admin. |
 | O4 | Customer Data | **Resolved for v1.** Minimum fields only. Extra fields come later. |
 | O5 | Permissions | **Resolved for v1.** Everyone views and edits all leads and cases. Admin and manager delete. Only admin changes roles and permissions. Role changes after v1 are a later decision. |

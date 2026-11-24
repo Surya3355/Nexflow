@@ -68,3 +68,11 @@ sql:
         package: "alertsdb"
         out: "modules/alerts/alertsdb"
         sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/leads/queries"
+    gen:
+      go:
+        package: "leadsdb"
+        out: "modules/leads/leadsdb"
+        sql_package: "pgx/v5"

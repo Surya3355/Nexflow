@@ -15,6 +15,10 @@ export type Case = {
   follow_up_date?: string;
   created_at: string;
   warning?: string;
+  /** The lead this case came from, if any. */
+  lead_id?: number | null;
+  /** Flat, villa or plot number. */
+  unit_number?: string | null;
 };
 
 export type Stage = {
@@ -40,6 +44,7 @@ export type Customer = {
   email: string;
   status: "active" | "dropped";
   cases?: CaseRow[];
+  leads?: LeadRow[];
 };
 
 export type Bank = { id: number; name: string; has_own_stages?: boolean };
@@ -51,6 +56,48 @@ export type StaffUser = { id: number; full_name: string; username: string };
 export type SearchGroup = {
   customer: { id: number; name: string; mobile: string; status: string };
   cases: Case[];
+  leads?: LeadRow[];
+};
+
+export type LeadStatus = "open" | "converted" | "dropped";
+export type LeadResponse = "interested" | "call_back" | "not_reachable" | "not_interested";
+
+export const responseLabel: Record<LeadResponse, string> = {
+  interested: "Interested",
+  call_back: "Call back later",
+  not_reachable: "Not reachable",
+  not_interested: "Not interested",
+};
+
+/** An enquiry for one project, before the customer comes in (spec 2026-11-23). */
+export type LeadRow = {
+  id: number;
+  customer_id: number;
+  customer_name: string;
+  customer_mobile: string;
+  customer_email: string;
+  project_id: number;
+  project_name: string;
+  assignee_id: number;
+  assignee_name: string;
+  status: LeadStatus;
+  next_call_date: string | null;
+  last_response: LeadResponse | null;
+  last_contact_at: string | null;
+  call_due: boolean;
+  overdue_days: number;
+  created_at: string;
+  converted_at: string | null;
+  case_id: number | null;
+};
+
+export type LeadContact = {
+  id: number;
+  response: LeadResponse;
+  remark: string;
+  next_call_date: string | null;
+  created_at: string;
+  created_by: string;
 };
 
 export type DocumentInfo = {

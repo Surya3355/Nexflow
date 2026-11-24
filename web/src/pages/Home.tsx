@@ -1,20 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { AttentionItem, Bank, CaseRow, DashboardData, Project, SearchGroup, Stage, StaffUser } from "../api/types";
+import type { AttentionItem, Bank, CaseRow, DashboardData, LeadRow, Project, SearchGroup, Stage, StaffUser } from "../api/types";
 import { Chip } from "../components/Chip";
 import { btnPrimary, btnSmall, card, istToday, muted, page, rupees } from "../components/ui";
 import { defaultScope } from "../roles";
 import type { SignedInUser } from "./Login";
 import { ProjectPicker } from "../components/ProjectPicker";
 import { CaseTable, type ListRow } from "./home/CaseTable";
+import { LeadList, ResponseBadge } from "./home/LeadList";
 import { NewCustomerPanel } from "./home/NewCustomerPanel";
 import { TodayPanel } from "./home/TodayPanel";
 
 const PAGE = 50;
 const SEARCH_DELAY_MS = 300;
 
-type Scope = "mine" | "all" | "attention";
+type Scope = "leads" | "mine" | "all" | "attention";
 
 function greeting(name: string, now = new Date()): string {
   const hour = Number(now.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", hour12: false }));
@@ -32,6 +33,7 @@ export function Home({ user }: { user: SignedInUser }) {
   const [groups, setGroups] = useState<SearchGroup[] | null>(null);
   const [rows, setRows] = useState<CaseRow[]>([]);
   const [attention, setAttention] = useState<AttentionItem[]>([]);
+  const [leads, setLeads] = useState<LeadRow[]>([]);
   const [today, setToday] = useState<DashboardData | null>(null);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -53,6 +55,7 @@ export function Home({ user }: { user: SignedInUser }) {
     api.request<Project[]>("GET", "/api/config/projects").then(setProjects).catch(() => setProjects([]));
     api.request<StaffUser[]>("GET", "/api/users").then(setUsers).catch(() => setUsers([]));
     api.request<AttentionItem[]>("GET", "/api/cases/attention").then(setAttention).catch(() => setAttention([]));
+    api.request<LeadRow[]>("GET", "/api/leads").then(setLeads).catch(() => setLeads([]));
     const month = `${istToday().slice(0, 8)}01`;
     api.request<DashboardData>("GET", `/api/reports/dashboard?from=${month}&to=${istToday()}`).then(setToday).catch(() => setToday(null));
   }, []);
@@ -99,7 +102,13 @@ export function Home({ user }: { user: SignedInUser }) {
     () => (defaultScope(user.role) === "mine" ? attention.filter((a) => a.assignee_id === user.id) : attention),
     [attention, user.id, user.role],
   );
-  const listed: ListRow[] = scope === "mine" ? mineRows : scope === "all" ? rows : scopedAttention;
+  // Lead calls due today or earlier also need attention, scoped like cases.
+  const leadAttention = useMemo(
+    () => leads.filter((l) => l.call_due && (defaultScope(user.role) !== "mine" || l.assignee_id === user.id)),
+    [leads, user.id, user.role],
+  );
+  const attentionCount = scopedAttention.length + leadAttention.length;
+  const listed: ListRow[] = scope === "mine" ? mineRows : scope === "all" ? rows : scope === "attention" ? scopedAttention : [];
 
   function pick(s: Scope) {
     setScope(s);
@@ -126,9 +135,10 @@ export function Home({ user }: { user: SignedInUser }) {
 
           {groups === null && (
             <div className="flex flex-wrap gap-1.5">
+              <Chip active={scope === "leads"} onClick={() => pick("leads")}>{`Leads · ${leads.length}`}</Chip>
               <Chip active={scope === "mine"} onClick={() => pick("mine")}>{`My cases · ${mineRows.length}`}</Chip>
               <Chip active={scope === "all"} onClick={() => pick("all")}>{`All cases · ${rows.length}`}</Chip>
-              <Chip active={scope === "attention"} onClick={() => pick("attention")}>{`Needs attention · ${scopedAttention.length}`}</Chip>
+              <Chip active={scope === "attention"} onClick={() => pick("attention")}>{`Needs attention · ${attentionCount}`}</Chip>
               <select aria-label="Bank" className={chipSelect} value={bankId} onChange={(e) => { setBankId(e.target.value); setStageId(""); }}>
                 <option value="">Bank: all</option>
                 {banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -159,11 +169,13 @@ export function Home({ user }: { user: SignedInUser }) {
           {groups !== null ? (
             <SearchResults groups={groups} />
           ) : (
-            <>
-              {listed.length === 0 ? (
+            scope === "leads" ? (
+              leads.length === 0 ? <p className={`${card} ${muted}`}>No open leads.</p> : <LeadList leads={leads} />
+            ) : <>
+              {listed.length === 0 && (scope !== "attention" || leadAttention.length === 0) ? (
                 <p className={`${card} ${muted}`}>{scope === "attention" ? "Nothing needs attention." : "No cases match."}</p>
               ) : (
-                <CaseTable rows={listed.slice(0, shown)} />
+                <CaseTable rows={listed.slice(0, shown)} leads={scope === "attention" ? leadAttention : []} />
               )}
               {listed.length > shown && (
                 <p className={muted}>
@@ -175,11 +187,11 @@ export function Home({ user }: { user: SignedInUser }) {
           )}
         </div>
         <div className="order-first min-[1100px]:order-none">
-          <TodayPanel data={today} attention={scopedAttention} />
+          <TodayPanel data={today} attention={scopedAttention} leads={leadAttention} />
         </div>
       </div>
 
-      <NewCustomerPanel open={adding} onClose={() => setAdding(false)} banks={banks} projects={projects} users={users} meId={user.id} />
+      <NewCustomerPanel open={adding} onClose={() => setAdding(false)} projects={projects} users={users} meId={user.id} />
     </main>
   );
 }
@@ -195,6 +207,13 @@ function SearchResults({ groups }: { groups: SearchGroup[] }) {
             <span className={muted}>{g.customer.mobile}{g.customer.status === "dropped" ? " · Dropped" : ""}</span>
           </div>
           <ul className="mt-2 space-y-1 text-sm">
+            {(g.leads ?? []).map((l) => (
+              <li key={`lead-${l.id}`}>
+                <Link to={`/leads/${l.id}`} className={`${btnSmall} flex w-full items-center justify-between gap-2`}>
+                  <span>Lead · {l.project_name}</span><ResponseBadge lead={l} />
+                </Link>
+              </li>
+            ))}
             {g.cases.map((c) => (
               <li key={c.id}>
                 <Link to={`/cases/${c.id}`} className={`${btnSmall} w-full`}>
@@ -202,7 +221,7 @@ function SearchResults({ groups }: { groups: SearchGroup[] }) {
                 </Link>
               </li>
             ))}
-            {g.cases.length === 0 && <li className={muted}>No cases yet.</li>}
+            {g.cases.length === 0 && (g.leads ?? []).length === 0 && <li className={muted}>No cases yet.</li>}
           </ul>
         </section>
       ))}

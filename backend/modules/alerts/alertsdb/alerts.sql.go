@@ -18,7 +18,7 @@ ON CONFLICT DO NOTHING
 `
 
 type EnqueueAlertParams struct {
-	CaseID          int64
+	CaseID          pgtype.Int8
 	RecipientUserID int64
 	Kind            string
 	DueOn           pgtype.Date
@@ -27,6 +27,32 @@ type EnqueueAlertParams struct {
 func (q *Queries) EnqueueAlert(ctx context.Context, arg EnqueueAlertParams) (int64, error) {
 	result, err := q.db.Exec(ctx, enqueueAlert,
 		arg.CaseID,
+		arg.RecipientUserID,
+		arg.Kind,
+		arg.DueOn,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const enqueueLeadAlert = `-- name: EnqueueLeadAlert :execrows
+INSERT INTO alert_log (lead_id, recipient_user_id, kind, due_on)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT DO NOTHING
+`
+
+type EnqueueLeadAlertParams struct {
+	LeadID          pgtype.Int8
+	RecipientUserID int64
+	Kind            string
+	DueOn           pgtype.Date
+}
+
+func (q *Queries) EnqueueLeadAlert(ctx context.Context, arg EnqueueLeadAlertParams) (int64, error) {
+	result, err := q.db.Exec(ctx, enqueueLeadAlert,
+		arg.LeadID,
 		arg.RecipientUserID,
 		arg.Kind,
 		arg.DueOn,
@@ -94,14 +120,51 @@ func (q *Queries) QueueFollowUpOverdue(ctx context.Context, dueDay pgtype.Date) 
 	return result.RowsAffected(), nil
 }
 
+const queueLeadCallDue = `-- name: QueueLeadCallDue :execrows
+INSERT INTO alert_log (lead_id, recipient_user_id, kind, due_on)
+SELECT l.id, l.assignee_id, 'follow_up_due', l.next_call_date
+FROM leads l
+WHERE l.next_call_date = $1::date AND l.status = 'open'
+ON CONFLICT DO NOTHING
+`
+
+// Open leads whose next call falls on the given IST day.
+func (q *Queries) QueueLeadCallDue(ctx context.Context, dueDay pgtype.Date) (int64, error) {
+	result, err := q.db.Exec(ctx, queueLeadCallDue, dueDay)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const queueLeadCallOverdue = `-- name: QueueLeadCallOverdue :execrows
+INSERT INTO alert_log (lead_id, recipient_user_id, kind, due_on)
+SELECT l.id, l.assignee_id, 'follow_up_overdue', l.next_call_date
+FROM leads l
+WHERE l.next_call_date <= $1::date AND l.status = 'open'
+ON CONFLICT DO NOTHING
+`
+
+// Open leads whose next call was the given day or earlier: one overdue alert
+// per call date, so a date logged late still gets its reminder.
+func (q *Queries) QueueLeadCallOverdue(ctx context.Context, dueDay pgtype.Date) (int64, error) {
+	result, err := q.db.Exec(ctx, queueLeadCallOverdue, dueDay)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const unsentAlerts = `-- name: UnsentAlerts :many
 SELECT a.id, a.case_id, a.kind, a.due_on, a.attempts,
        u.username, COALESCE(u.email, '')::text AS email, u.full_name,
-       c.id AS case_ref, cu.name AS customer_name
+       c.id AS case_ref, l.id AS lead_ref, cu.name AS customer_name, COALESCE(p.name, '')::text AS project_name
 FROM alert_log a
 JOIN users u ON u.id = a.recipient_user_id
-JOIN cases c ON c.id = a.case_id
-JOIN customers cu ON cu.id = c.customer_id
+LEFT JOIN cases c ON c.id = a.case_id
+LEFT JOIN leads l ON l.id = a.lead_id
+LEFT JOIN projects p ON p.id = l.project_id
+JOIN customers cu ON cu.id = COALESCE(c.customer_id, l.customer_id)
 WHERE a.sent_at IS NULL AND u.is_active
 ORDER BY a.queued_at, a.id
 LIMIT $1
@@ -109,17 +172,20 @@ LIMIT $1
 
 type UnsentAlertsRow struct {
 	ID           int64
-	CaseID       int64
+	CaseID       pgtype.Int8
 	Kind         string
 	DueOn        pgtype.Date
 	Attempts     int32
 	Username     string
 	Email        string
 	FullName     string
-	CaseRef      int64
+	CaseRef      pgtype.Int8
+	LeadRef      pgtype.Int8
 	CustomerName string
+	ProjectName  string
 }
 
+// An alert belongs to a case or to a lead; the customer comes through either.
 func (q *Queries) UnsentAlerts(ctx context.Context, limit int32) ([]UnsentAlertsRow, error) {
 	rows, err := q.db.Query(ctx, unsentAlerts, limit)
 	if err != nil {
@@ -139,7 +205,9 @@ func (q *Queries) UnsentAlerts(ctx context.Context, limit int32) ([]UnsentAlerts
 			&i.Email,
 			&i.FullName,
 			&i.CaseRef,
+			&i.LeadRef,
 			&i.CustomerName,
+			&i.ProjectName,
 		); err != nil {
 			return nil, err
 		}

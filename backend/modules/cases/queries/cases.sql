@@ -1,7 +1,8 @@
 -- name: InsertCase :one
-INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, created_by, updated_by, project_id)
-VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
-RETURNING id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, project_id;
+INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, created_by, updated_by, project_id,
+                   tracking_number, lead_id, unit_number)
+VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10)
+RETURNING id;
 
 -- name: InsertCaseStageEvent :exec
 INSERT INTO case_stage_events (case_id, stage_id, reached_at, changed_by)
@@ -12,7 +13,8 @@ INSERT INTO case_assignment_events (case_id, from_user_id, to_user_id, changed_b
 VALUES ($1, $2, $3, $4, $5);
 
 -- name: GetCase :one
-SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id
+SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
+       lead_id, unit_number
 FROM cases WHERE id = $1;
 
 -- name: LockCase :one
@@ -89,13 +91,15 @@ ORDER BY c.name, c.id;
 SELECT id, name, mobile, COALESCE(email, '')::text AS email, status FROM customers WHERE id = $1;
 
 -- name: CasesForCustomer :many
-SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id
+SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
+       lead_id, unit_number
 FROM cases WHERE customer_id = $1 ORDER BY created_at, id;
 
 -- name: ListCases :many
 -- Each filter is optional (NULL means no filter). Filters combine with AND.
 -- Dropped cases are listed too, with their status.
-SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id
+SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
+       lead_id, unit_number
 FROM cases
 WHERE (sqlc.narg('stage_id')::bigint IS NULL OR current_stage_id = sqlc.narg('stage_id')::bigint)
   AND (sqlc.narg('bank_id')::bigint IS NULL OR bank_id = sqlc.narg('bank_id')::bigint)
@@ -117,7 +121,7 @@ ORDER BY e.reached_at, e.id;
 -- ListCases plus the names and stage progress the case list shows.
 -- stage_count uses the bank's own stages when it has any, else the standard stages.
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
-       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id,
+       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
        s.name AS stage_name, s.code AS stage_code,
        (SELECT count(*) FROM stages x
@@ -152,7 +156,7 @@ ORDER BY k.created_at DESC, k.id DESC;
 -- and that stage is not Disbursed. Oldest first.
 SELECT * FROM (
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
-       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id,
+       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
        s.name AS stage_name, s.code AS stage_code,
        (SELECT count(*) FROM stages x
@@ -184,3 +188,16 @@ UPDATE cases SET project_id = $2, updated_at = now(), updated_by = $3 WHERE id =
 
 -- name: LockCustomerStatus :one
 SELECT status FROM customers WHERE id = $1 FOR UPDATE;
+
+-- name: LockLeadForCase :one
+SELECT id, customer_id, project_id, status FROM leads WHERE id = $1 FOR UPDATE;
+
+-- name: MarkLeadConverted :exec
+UPDATE leads SET status = 'converted', converted_at = now(), next_call_date = NULL, updated_at = now(), updated_by = $2
+WHERE id = $1;
+
+-- name: SetCaseUnit :exec
+UPDATE cases SET unit_number = $2, updated_at = now(), updated_by = $3 WHERE id = $1;
+
+-- name: BankExists :one
+SELECT EXISTS (SELECT 1 FROM banks WHERE id = $1);

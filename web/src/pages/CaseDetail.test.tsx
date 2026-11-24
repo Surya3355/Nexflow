@@ -57,11 +57,49 @@ async function ready() {
 }
 
 describe("CaseDetail", () => {
-  it("shows the customer, bank and amount in the header", async () => {
+  it("case heading is the customer name", async () => {
     renderCase({});
-    expect(await screen.findByRole("heading", { name: "Case #11 · HDFC · NA" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Ravi Kumar" })).toHaveAttribute("href", "/customers/5");
+    const h = await screen.findByRole("heading", { level: 1, name: "Ravi Kumar" });
+    expect(h.className).toContain("text-2xl");
+    expect(within(h).getByRole("link", { name: "Ravi Kumar" })).toHaveAttribute("href", "/customers/5");
+    expect(screen.getByRole("link", { name: "9848012345" })).toHaveAttribute("href", "tel:9848012345");
+    expect(screen.getByText(/HDFC · Case #11/)).toBeInTheDocument();
     expect(screen.getByText("₹25,00,000")).toBeInTheDocument();
+  });
+
+  it("project shown once, in Details", async () => {
+    renderCase({});
+    await screen.findByRole("heading", { level: 1, name: "Ravi Kumar" });
+    const details = screen.getByRole("region", { name: "Details" });
+    expect(within(details).getByText("NA")).toBeInTheDocument();
+    expect(screen.getAllByText("NA")).toHaveLength(1);
+  });
+
+  it("unit no. can be changed", async () => {
+    const spy = renderCase({ "POST /api/cases/11/unit": { body: { ...aCase, unit_number: "B-14" } } }, standard, { ...aCase, unit_number: "A-1" });
+    const details = await screen.findByRole("region", { name: "Details" });
+    expect(within(details).getByText("A-1")).toBeInTheDocument();
+    await userEvent.click(within(details).getByRole("button", { name: "Change unit no." }));
+    const dialog = screen.getByRole("dialog", { name: "Change unit no." });
+    const field = within(dialog).getByLabelText("Unit no.");
+    await userEvent.clear(field);
+    await userEvent.type(field, "b-14");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(bodyOf(spy, "POST /api/cases/11/unit")).toEqual({ unit_number: "B-14" }));
+  });
+
+  it("contact log shows for a case from a lead", async () => {
+    renderCase({
+      "GET /api/leads/9": { body: { lead: {}, contacts: [{ id: 1, response: "interested", remark: "Coming tomorrow", next_call_date: null, created_at: "2026-11-22T13:00:00Z", created_by: "Anil" }] } },
+    }, standard, { ...aCase, lead_id: 9 });
+    const log = await screen.findByRole("list", { name: "Contact log" });
+    expect(log).toHaveTextContent("Coming tomorrow");
+  });
+
+  it("New case for Ravi opens the form", async () => {
+    renderCase({ "GET /api/config/banks": { body: [{ id: 1, name: "HDFC" }] } });
+    await userEvent.click(await screen.findByRole("button", { name: "+ New case for Ravi" }));
+    expect(screen.getByRole("dialog", { name: "New case" })).toBeInTheDocument();
   });
 
   it("shows the stage history in order, with each date", async () => {
@@ -123,13 +161,13 @@ describe("CaseDetail", () => {
 
   it("a disbursed case can still change project", async () => {
     renderCase({}, standard, { ...aCase, status: "completed", current_stage_id: 6 });
-    await screen.findByRole("heading", { name: "Case #11 · HDFC · NA" });
+    await screen.findByRole("heading", { level: 1, name: "Ravi Kumar" });
     expect(screen.getByRole("button", { name: "Change project" })).toBeInTheDocument();
   });
 
   it("a dropped case cannot change project", async () => {
     renderCase({}, standard, { ...aCase, status: "dropped" });
-    await screen.findByRole("heading", { name: "Case #11 · HDFC · NA" });
+    await screen.findByRole("heading", { level: 1, name: "Ravi Kumar" });
     expect(screen.queryByRole("button", { name: "Change project" })).not.toBeInTheDocument();
   });
 
@@ -137,7 +175,7 @@ describe("CaseDetail", () => {
     const spy = renderCase({
       "POST /api/cases/11/project": { body: { ...aCase, project_id: 4 } },
     });
-    expect(await screen.findByRole("heading", { name: "Case #11 · HDFC · NA" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Ravi Kumar" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Change project" }));
     const dialog = screen.getByRole("dialog", { name: "Change project" });
     await userEvent.type(within(dialog).getByRole("combobox", { name: "Project" }), "Pre");

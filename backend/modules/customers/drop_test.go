@@ -93,3 +93,45 @@ func TestDroppingCustomerLeavesAlreadyDroppedCaseUnchanged(t *testing.T) {
 		t.Fatalf("already-dropped case changed: reason=%d via_customer=%v", got, viaCustomer)
 	}
 }
+
+func addLead(t *testing.T, pool *pgxpool.Pool, actorID, customerID int64, status string) int64 {
+	t.Helper()
+	var id int64
+	q := `INSERT INTO leads (customer_id, project_id, assignee_id, status, converted_at) VALUES ($1, na_project_id(), $2, $3,
+		CASE WHEN $3 = 'converted' THEN now() END) RETURNING id`
+	if err := pool.QueryRow(context.Background(), q, customerID, actorID, status).Scan(&id); err != nil {
+		t.Fatalf("lead: %v", err)
+	}
+	return id
+}
+
+func TestDropCustomerDropsOpenLeads(t *testing.T) {
+	svc, pool, actor := setup(t)
+	ctx := context.Background()
+	res, _ := svc.Create(ctx, actor, NewCustomer{Name: "L", Mobile: "9000000031"})
+	open := addLead(t, pool, actor.ID, res.Customer.ID, "open")
+	var other int64
+	if err := pool.QueryRow(ctx, `INSERT INTO projects (name) VALUES ('P') RETURNING id`).Scan(&other); err != nil {
+		t.Fatal(err)
+	}
+	var converted int64
+	if err := pool.QueryRow(ctx, `INSERT INTO leads (customer_id, project_id, assignee_id, status, converted_at)
+		VALUES ($1, $2, $3, 'converted', now()) RETURNING id`, res.Customer.ID, other, actor.ID).Scan(&converted); err != nil {
+		t.Fatal(err)
+	}
+	reason := reasonID(t, pool, "Customer not interested")
+	if _, err := svc.Drop(ctx, actor, res.Customer.ID, DropInput{ReasonID: reason, Remark: "moved city"}); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	var status, remark string
+	var got int64
+	if err := pool.QueryRow(ctx, `SELECT status, dropped_reason_id, dropped_remark FROM leads WHERE id=$1`, open).Scan(&status, &got, &remark); err != nil {
+		t.Fatal(err)
+	}
+	if status != "dropped" || got != reason || remark != "moved city" {
+		t.Errorf("open lead: %s %d %q", status, got, remark)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status FROM leads WHERE id=$1`, converted).Scan(&status); err != nil || status != "converted" {
+		t.Errorf("converted lead: %s %v", status, err)
+	}
+}

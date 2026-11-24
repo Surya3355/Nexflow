@@ -12,6 +12,7 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
+	"github.com/Surya3355/nexflow/backend/modules/leads"
 	"github.com/Surya3355/nexflow/backend/modules/reports"
 	"github.com/Surya3355/nexflow/backend/modules/workflows"
 	"github.com/go-chi/chi/v5"
@@ -396,24 +397,34 @@ func caseJSON(c cases.Case) map[string]any {
 	if c.FollowUpDate != nil {
 		out["follow_up_date"] = c.FollowUpDate.Format("2006-01-02")
 	}
+	out["lead_id"], out["unit_number"] = nil, nil
+	if c.LeadID != nil {
+		out["lead_id"] = *c.LeadID
+	}
+	if c.UnitNumber != nil {
+		out["unit_number"] = *c.UnitNumber
+	}
 	return out
 }
 
 func (h *handlers) createCase(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		CustomerID int64  `json:"customer_id"`
-		BankID     int64  `json:"bank_id"`
-		ProjectID  int64  `json:"project_id"`
-		LoanAmount string `json:"loan_amount"`
-		AssigneeID int64  `json:"assignee_id"`
-		BringBack  bool   `json:"bring_back"`
+		CustomerID     int64  `json:"customer_id"`
+		BankID         int64  `json:"bank_id"`
+		ProjectID      int64  `json:"project_id"`
+		LoanAmount     string `json:"loan_amount"`
+		AssigneeID     int64  `json:"assignee_id"`
+		BringBack      bool   `json:"bring_back"`
+		UnitNumber     string `json:"unit_number"`
+		StartAt        string `json:"start_at"`
+		TrackingNumber string `json:"tracking_number"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
 	c, err := h.d.Cases.Create(r.Context(), actor(r), cases.NewCase{
 		CustomerID: in.CustomerID, BankID: in.BankID, ProjectID: in.ProjectID, LoanAmount: in.LoanAmount, AssigneeID: in.AssigneeID,
-		BringBack: in.BringBack,
+		BringBack: in.BringBack, UnitNumber: in.UnitNumber, StartAt: in.StartAt, TrackingNumber: in.TrackingNumber,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -716,9 +727,21 @@ func (h *handlers) search(w http.ResponseWriter, r *http.Request) {
 		for _, c := range g.Cases {
 			cs = append(cs, caseJSON(c))
 		}
+		all, err := h.d.Leads.ForCustomer(r.Context(), g.Customer.ID, time.Now())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		open := make([]leads.Row, 0, len(all))
+		for _, l := range all {
+			if l.Status == leads.StatusOpen {
+				open = append(open, l)
+			}
+		}
 		out = append(out, map[string]any{
 			"customer": map[string]any{"id": g.Customer.ID, "name": g.Customer.Name, "mobile": g.Customer.Mobile, "status": g.Customer.Status},
 			"cases":    cs,
+			"leads":    leadRowsJSON(open),
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -944,8 +967,14 @@ func (h *handlers) getCustomer(w http.ResponseWriter, r *http.Request) {
 	for _, x := range list {
 		cs = append(cs, caseRowJSON(x))
 	}
+	ls, err := h.d.Leads.ForCustomer(r.Context(), id, time.Now())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	resp := customerJSON(c)
 	resp["cases"] = cs
+	resp["leads"] = leadRowsJSON(ls)
 	writeJSON(w, http.StatusOK, resp)
 }
 

@@ -60,6 +60,31 @@ func (q *Queries) DropCustomerCases(ctx context.Context, arg DropCustomerCasesPa
 	return err
 }
 
+const dropCustomerLeads = `-- name: DropCustomerLeads :exec
+UPDATE leads
+SET status = 'dropped', dropped_reason_id = $2, dropped_remark = $3, dropped_at = now(),
+    dropped_by = $4, next_call_date = NULL, updated_at = now(), updated_by = $4
+WHERE customer_id = $1 AND status = 'open'
+`
+
+type DropCustomerLeadsParams struct {
+	CustomerID      int64
+	DroppedReasonID pgtype.Int8
+	DroppedRemark   pgtype.Text
+	DroppedBy       pgtype.Int8
+}
+
+// Open leads only; converted and already-dropped leads keep their state.
+func (q *Queries) DropCustomerLeads(ctx context.Context, arg DropCustomerLeadsParams) error {
+	_, err := q.db.Exec(ctx, dropCustomerLeads,
+		arg.CustomerID,
+		arg.DroppedReasonID,
+		arg.DroppedRemark,
+		arg.DroppedBy,
+	)
+	return err
+}
+
 const getCustomer = `-- name: GetCustomer :one
 SELECT id, name, mobile, email, status FROM customers WHERE id = $1
 `

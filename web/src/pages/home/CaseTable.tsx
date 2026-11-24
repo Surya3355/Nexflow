@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom";
-import type { CaseRow } from "../../api/types";
+import type { CaseRow, LeadRow } from "../../api/types";
 import { Badge } from "../../components/Badge";
 import { ProgressBar } from "../../components/ProgressBar";
 import { ago, rupees } from "../../components/ui";
+import { callReason } from "./LeadList";
 
 export type ListRow = CaseRow & { reason?: string };
 
@@ -24,8 +25,9 @@ function StageCell({ r }: { r: ListRow }) {
   );
 }
 
-/** The case list: header row on desktop, one link per case. */
-export function CaseTable({ rows }: { rows: ListRow[] }) {
+/** The case list: header row on desktop, one link per case. Lead calls that
+ * need attention are listed after the cases, linking to the lead. */
+export function CaseTable({ rows, leads = [] }: { rows: ListRow[]; leads?: LeadRow[] }) {
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <div className={`${grid} hidden bg-slate-50 py-2.5 text-xs uppercase tracking-wide text-slate-500 min-[760px]:grid`} aria-hidden="true">
@@ -45,6 +47,22 @@ export function CaseTable({ rows }: { rows: ListRow[] }) {
               <span className="hidden min-[760px]:inline">{r.assignee_name}</span>
               <span className="hidden text-slate-500 min-[760px]:inline">{ago(r.stage_since)}</span>
               <span className="text-right font-semibold min-[760px]:order-none order-2">{rupees(r.loan_amount)}</span>
+            </Link>
+          </li>
+        ))}
+        {leads.map((l) => (
+          <li key={`lead-${l.id}`}>
+            <Link to={`/leads/${l.id}`} className={`${grid} text-sm text-slate-900 hover:bg-slate-50`}>
+              <span>
+                <b>{l.customer_name}</b>
+                <span className="block text-slate-500">{l.customer_mobile} · Lead<span className="min-[760px]:hidden"> · {l.project_name}</span></span>
+              </span>
+              <span className="hidden min-[760px]:inline">–</span>
+              <span className="hidden break-words min-[760px]:inline">{l.project_name}</span>
+              <span className="col-span-2 order-3 text-sm text-amber-800 min-[760px]:order-none min-[760px]:col-span-1">{callReason(l)}</span>
+              <span className="hidden min-[760px]:inline">{l.assignee_name}</span>
+              <span className="hidden min-[760px]:inline" />
+              <span className="order-2 text-right min-[760px]:order-none" />
             </Link>
           </li>
         ))}

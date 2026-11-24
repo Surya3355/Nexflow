@@ -58,7 +58,7 @@ func (q *Queue) Enqueue(ctx context.Context, caseID, recipientID int64, kind str
 		due = pgtype.Date{Time: *dueOn, Valid: true}
 	}
 	if _, err := alertsdb.New(q.executor(ctx)).EnqueueAlert(ctx, alertsdb.EnqueueAlertParams{
-		CaseID: caseID, RecipientUserID: recipientID, Kind: kind, DueOn: due,
+		CaseID: pgtype.Int8{Int64: caseID, Valid: true}, RecipientUserID: recipientID, Kind: kind, DueOn: due,
 	}); err != nil {
 		return fmt.Errorf("alerts: enqueue: %w", err)
 	}
@@ -69,6 +69,17 @@ func (q *Queue) Enqueue(ctx context.Context, caseID, recipientID int64, kind str
 // cases.Notifier, and runs inside the assignment transaction.
 func (q *Queue) QueueAssigned(ctx context.Context, caseID, recipientID int64) error {
 	return q.Enqueue(ctx, caseID, recipientID, KindAssigned, nil)
+}
+
+// QueueLeadAssigned queues the assignment alert for a lead's new assignee. It
+// satisfies leads.Notifier, and runs inside the assignment transaction.
+func (q *Queue) QueueLeadAssigned(ctx context.Context, leadID, recipientID int64) error {
+	if _, err := alertsdb.New(q.executor(ctx)).EnqueueLeadAlert(ctx, alertsdb.EnqueueLeadAlertParams{
+		LeadID: pgtype.Int8{Int64: leadID, Valid: true}, RecipientUserID: recipientID, Kind: KindAssigned,
+	}); err != nil {
+		return fmt.Errorf("alerts: enqueue lead: %w", err)
+	}
+	return nil
 }
 
 // Dispatch sends up to limit queued alerts. A failed send is recorded and the
@@ -87,7 +98,7 @@ func (q *Queue) Dispatch(ctx context.Context, sender Sender, limit int32) (Dispa
 			_ = db.MarkAlertFailed(ctx, alertsdb.MarkAlertFailedParams{ID: r.ID, LastError: pgtype.Text{String: "no email address", Valid: true}})
 			continue
 		}
-		subject, body := compose(r.Kind, r.CustomerName, r.CaseRef)
+		subject, body := compose(r.Kind, r.CustomerName, r.ProjectName, r.CaseRef, r.LeadRef)
 		if err := sender.Send(ctx, r.Email, subject, body); err != nil {
 			res.Failed++
 			_ = db.MarkAlertFailed(ctx, alertsdb.MarkAlertFailedParams{ID: r.ID, LastError: pgtype.Text{String: err.Error(), Valid: true}})
@@ -101,7 +112,18 @@ func (q *Queue) Dispatch(ctx context.Context, sender Sender, limit int32) (Dispa
 	return res, nil
 }
 
-func compose(kind, customer string, caseID int64) (string, string) {
+func compose(kind, customer, project string, caseRef, leadRef pgtype.Int8) (string, string) {
+	if leadRef.Valid && !caseRef.Valid {
+		switch kind {
+		case KindAssigned:
+			return "A lead has been assigned to you", fmt.Sprintf("Lead for %s (%s) has been assigned to you in Nexflow.", customer, project)
+		case KindFollowUpDue:
+			return "Call due today", fmt.Sprintf("Call %s about %s today.", customer, project)
+		default:
+			return "Call overdue", fmt.Sprintf("The call to %s about %s is overdue.", customer, project)
+		}
+	}
+	caseID := caseRef.Int64
 	switch kind {
 	case KindAssigned:
 		return "A case has been assigned to you", fmt.Sprintf("Case %d for %s has been assigned to you in Nexflow.", caseID, customer)

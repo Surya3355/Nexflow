@@ -16,8 +16,9 @@ import (
 
 // fakeSender records sent mail; fail makes Send return an error.
 type fakeSender struct {
-	fail bool
-	sent []string
+	fail   bool
+	sent   []string
+	bodies []string
 }
 
 func (f *fakeSender) Send(_ context.Context, to, subject, body string) error {
@@ -25,6 +26,7 @@ func (f *fakeSender) Send(_ context.Context, to, subject, body string) error {
 		return errors.New("smtp down")
 	}
 	f.sent = append(f.sent, to+"|"+subject)
+	f.bodies = append(f.bodies, body)
 	return nil
 }
 

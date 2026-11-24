@@ -76,6 +76,32 @@ func (q *Queries) CountLiveCases(ctx context.Context, customerID int64) (int64, 
 	return count, err
 }
 
+const countOpenLeads = `-- name: CountOpenLeads :one
+SELECT count(*) FROM leads WHERE customer_id = $1 AND status = 'open'
+`
+
+func (q *Queries) CountOpenLeads(ctx context.Context, customerID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countOpenLeads, customerID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const customerLeadsJSON = `-- name: CustomerLeadsJSON :one
+SELECT COALESCE(jsonb_agg(to_jsonb(l) || jsonb_build_object('contacts',
+         COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM lead_contacts c WHERE c.lead_id = l.id), '[]'::jsonb))
+       ORDER BY l.id), '[]'::jsonb)::text AS doc
+FROM leads l WHERE l.customer_id = $1
+`
+
+// Each lead with its contact log, for the customer snapshot.
+func (q *Queries) CustomerLeadsJSON(ctx context.Context, customerID int64) (string, error) {
+	row := q.db.QueryRow(ctx, customerLeadsJSON, customerID)
+	var doc string
+	err := row.Scan(&doc)
+	return doc, err
+}
+
 const customerRowJSON = `-- name: CustomerRowJSON :one
 SELECT row_to_json(cu)::text AS doc FROM customers cu WHERE cu.id = $1
 `
@@ -91,7 +117,7 @@ const deleteCaseAlerts = `-- name: DeleteCaseAlerts :exec
 DELETE FROM alert_log WHERE case_id = $1
 `
 
-func (q *Queries) DeleteCaseAlerts(ctx context.Context, caseID int64) error {
+func (q *Queries) DeleteCaseAlerts(ctx context.Context, caseID pgtype.Int8) error {
 	_, err := q.db.Exec(ctx, deleteCaseAlerts, caseID)
 	return err
 }
@@ -129,6 +155,33 @@ DELETE FROM case_stage_events WHERE case_id = $1
 
 func (q *Queries) DeleteCaseStageEvents(ctx context.Context, caseID int64) error {
 	_, err := q.db.Exec(ctx, deleteCaseStageEvents, caseID)
+	return err
+}
+
+const deleteCustomerLeadAlerts = `-- name: DeleteCustomerLeadAlerts :exec
+DELETE FROM alert_log WHERE lead_id IN (SELECT id FROM leads WHERE customer_id = $1)
+`
+
+func (q *Queries) DeleteCustomerLeadAlerts(ctx context.Context, customerID int64) error {
+	_, err := q.db.Exec(ctx, deleteCustomerLeadAlerts, customerID)
+	return err
+}
+
+const deleteCustomerLeadContacts = `-- name: DeleteCustomerLeadContacts :exec
+DELETE FROM lead_contacts WHERE lead_id IN (SELECT id FROM leads WHERE customer_id = $1)
+`
+
+func (q *Queries) DeleteCustomerLeadContacts(ctx context.Context, customerID int64) error {
+	_, err := q.db.Exec(ctx, deleteCustomerLeadContacts, customerID)
+	return err
+}
+
+const deleteCustomerLeads = `-- name: DeleteCustomerLeads :exec
+DELETE FROM leads WHERE customer_id = $1
+`
+
+func (q *Queries) DeleteCustomerLeads(ctx context.Context, customerID int64) error {
+	_, err := q.db.Exec(ctx, deleteCustomerLeads, customerID)
 	return err
 }
 
@@ -203,4 +256,16 @@ func (q *Queries) ListArchive(ctx context.Context) ([]ListArchiveRow, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockCustomerForDelete = `-- name: LockCustomerForDelete :one
+SELECT id FROM customers WHERE id = $1 FOR UPDATE
+`
+
+// Waits for anyone adding a lead or case to this customer to finish first.
+func (q *Queries) LockCustomerForDelete(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, lockCustomerForDelete, id)
+	var id_2 int64
+	err := row.Scan(&id_2)
+	return id_2, err
 }

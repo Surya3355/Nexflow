@@ -14,6 +14,13 @@ const caseRow = {
   stage_since: "2026-11-12T04:00:00Z", needs_document: false, tracking_number: "HD88213", project_id: 4, project_name: "Prestige",
 };
 
+const leadRow = {
+  id: 9, customer_id: 5, customer_name: "Ravi Kumar", customer_mobile: "9848012345", customer_email: "", project_id: 4,
+  project_name: "Green Villas", assignee_id: 7, assignee_name: "Priya", status: "open", next_call_date: "2026-11-24",
+  last_response: null, last_contact_at: null, call_due: false, overdue_days: 0, created_at: "2026-11-22T04:00:00Z",
+  converted_at: null, case_id: null,
+};
+
 function setup(customer: Record<string, unknown>, extra: Record<string, { status?: number; body?: unknown }> = {}) {
   const spy = mockApi({
     "GET /api/customers/5": { body: customer },
@@ -100,5 +107,19 @@ describe("Customer page", () => {
     });
     await userEvent.click(await screen.findByRole("button", { name: "Bring back" }));
     await waitFor(() => expect(spy.mock.calls.some(([u, init]) => String(u) === "/api/customers/5/reactivate" && init?.method === "POST")).toBe(true));
+  });
+
+  it("customer page lists leads above cases", async () => {
+    setup({ id: 5, name: "Ravi Kumar", mobile: "9848012345", email: "", status: "active", cases: [caseRow], leads: [leadRow] });
+    const leadsHeading = await screen.findByRole("heading", { name: "Leads (1)" });
+    const casesHeading = screen.getByRole("heading", { name: "Cases (1)" });
+    expect(leadsHeading.compareDocumentPosition(casesHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Green Villas/ })).toHaveAttribute("href", "/leads/9");
+  });
+
+  it("+ New lead opens the new project form", async () => {
+    setup({ id: 5, name: "Ravi Kumar", mobile: "9848012345", email: "", status: "active", cases: [], leads: [] });
+    await userEvent.click(await screen.findByRole("button", { name: "+ New lead" }));
+    expect(screen.getByRole("dialog", { name: "New project for Ravi Kumar" })).toBeInTheDocument();
   });
 });

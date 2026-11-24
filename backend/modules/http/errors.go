@@ -14,6 +14,7 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
+	"github.com/Surya3355/nexflow/backend/modules/leads"
 	"github.com/Surya3355/nexflow/backend/modules/workflows"
 )
 
@@ -34,7 +35,9 @@ func statusFor(err error) int {
 		errors.Is(err, documents.ErrNotFoundDoc),
 		errors.Is(err, workflows.ErrBankNotFound),
 		errors.Is(err, workflows.ErrProjectNotFound),
-		errors.Is(err, cases.ErrProjectNotFound):
+		errors.Is(err, cases.ErrProjectNotFound),
+		errors.Is(err, leads.ErrLeadNotFound),
+		errors.Is(err, leads.ErrProjectNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, access.ErrUsernameTaken),
 		errors.Is(err, cases.ErrDuplicateTracking),
@@ -52,7 +55,12 @@ func statusFor(err error) int {
 		errors.Is(err, workflows.ErrProjectNameTaken),
 		errors.Is(err, workflows.ErrProjectLocked),
 		errors.Is(err, cases.ErrCustomerDropped),
-		errors.Is(err, customers.ErrNotDropped):
+		errors.Is(err, customers.ErrNotDropped),
+		errors.Is(err, leads.ErrLeadClosed),
+		errors.Is(err, leads.ErrLeadExists),
+		errors.Is(err, leads.ErrLeadHasCase),
+		errors.Is(err, leads.ErrCustomerDropped),
+		errors.Is(err, archive.ErrCustomerHasOpenLeads):
 		return http.StatusConflict
 	case errors.Is(err, documents.ErrTooLarge):
 		return http.StatusRequestEntityTooLarge
@@ -77,7 +85,17 @@ func statusFor(err error) int {
 		errors.Is(err, documents.ErrUnsupportedType),
 		errors.Is(err, documents.ErrLabelRequired),
 		errors.Is(err, workflows.ErrBankNameRequired),
-		errors.Is(err, workflows.ErrProjectNameRequired):
+		errors.Is(err, workflows.ErrProjectNameRequired),
+		errors.Is(err, customers.ErrNameRequired),
+		errors.Is(err, cases.ErrInvalidUnit),
+		errors.Is(err, cases.ErrInvalidStart),
+		errors.Is(err, cases.ErrBankRequired),
+		errors.Is(err, leads.ErrInvalidResponse),
+		errors.Is(err, leads.ErrRemarkRequired),
+		errors.Is(err, leads.ErrProjectRequired),
+		errors.Is(err, leads.ErrAssigneeInvalid),
+		errors.Is(err, leads.ErrInvalidReason),
+		errors.Is(err, leads.ErrDropRemarkRequired):
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

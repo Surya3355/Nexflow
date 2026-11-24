@@ -1,0 +1,11 @@
+DELETE FROM alert_log WHERE lead_id IS NOT NULL;
+DROP INDEX alert_log_lead_once_uidx;
+DROP INDEX alert_log_case_once_uidx;
+ALTER TABLE alert_log DROP CONSTRAINT alert_log_one_target;
+ALTER TABLE alert_log DROP COLUMN lead_id;
+ALTER TABLE alert_log ALTER COLUMN case_id SET NOT NULL;
+ALTER TABLE alert_log ADD CONSTRAINT alert_log_case_id_kind_due_on_recipient_user_id_key UNIQUE NULLS NOT DISTINCT (case_id, kind, due_on, recipient_user_id);
+ALTER TABLE cases DROP COLUMN unit_number;
+ALTER TABLE cases DROP COLUMN lead_id;
+DROP TABLE lead_contacts;
+DROP TABLE leads;

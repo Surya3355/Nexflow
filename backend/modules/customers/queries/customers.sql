@@ -31,6 +31,13 @@ SET status = 'dropped', dropped_reason_id = $2, dropped_remark = $3, dropped_at 
     dropped_by = $4, dropped_via_customer = true, updated_at = now(), updated_by = $4
 WHERE customer_id = $1 AND status <> 'dropped';
 
+-- name: DropCustomerLeads :exec
+-- Open leads only; converted and already-dropped leads keep their state.
+UPDATE leads
+SET status = 'dropped', dropped_reason_id = $2, dropped_remark = $3, dropped_at = now(),
+    dropped_by = $4, next_call_date = NULL, updated_at = now(), updated_by = $4
+WHERE customer_id = $1 AND status = 'open';
+
 -- name: SetCustomerCasesDocumentsPurgeAfter :exec
 UPDATE documents SET purge_after = $2
 WHERE purge_after IS NULL AND case_id IN (SELECT id FROM cases WHERE customer_id = $1);

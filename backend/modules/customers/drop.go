@@ -82,6 +82,11 @@ func (s *Service) Drop(ctx context.Context, actor access.User, customerID int64,
 	}); err != nil {
 		return Customer{}, fmt.Errorf("customers: drop cases: %w", err)
 	}
+	if err := q.DropCustomerLeads(txCtx, customersdb.DropCustomerLeadsParams{
+		CustomerID: customerID, DroppedReasonID: reasonParam, DroppedRemark: remark, DroppedBy: by,
+	}); err != nil {
+		return Customer{}, fmt.Errorf("customers: drop leads: %w", err)
+	}
 	purge := istToday().AddDate(1, 0, 0)
 	if err := q.SetCustomerCasesDocumentsPurgeAfter(txCtx, customersdb.SetCustomerCasesDocumentsPurgeAfterParams{
 		CustomerID: customerID, PurgeAfter: pgtype.Date{Time: purge, Valid: true},

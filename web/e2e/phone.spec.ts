@@ -17,7 +17,17 @@ const caseRow = {
   created_at: "2026-11-03T04:44:00Z", customer_name: "Ravi Kumar Venkata Subramanian", customer_mobile: "9848012345",
   bank_name: "HDFC", project_id: 4, project_name: "Prestige Lakeside Habitat Phase 2", stage_name: "Under sanction", stage_code: "under_sanction", stage_order: 3, stage_count: 6,
   assignee_name: "Priya Sharma", stage_since: "2026-11-12T04:00:00Z", needs_document: true, tracking_number: "HD88213",
+  lead_id: 1, unit_number: "TOWER B-1402",
 };
+const leadRow = {
+  id: 1, customer_id: 5, customer_name: "Ravi Kumar Venkata Subramanian", customer_mobile: "9848012345", customer_email: "ravi.kumar@example.com",
+  project_id: 4, project_name: "Prestige Lakeside Habitat Phase 2", assignee_id: 1, assignee_name: "Priya Sharma", status: "open",
+  next_call_date: "2026-11-21", last_response: "call_back", last_contact_at: "2026-11-20T10:00:00Z", call_due: true, overdue_days: 2,
+  created_at: "2026-11-19T04:00:00Z", converted_at: null, case_id: null,
+};
+const leadContacts = [
+  { id: 1, response: "call_back", remark: "Busy at work all week, asked to call back on Monday evening after 6", next_call_date: "2026-11-21", created_at: "2026-11-20T10:00:00Z", created_by: "Priya Sharma" },
+];
 const stages = ["Received", "Logged in", "Under sanction", "Sanctioned", "Documentation", "Disbursed"].map((name, i) => ({
   id: i + 1, code: name.toLowerCase().replace(/ /g, "_"), name, sort_order: i + 1, requires_document: false,
 }));
@@ -39,13 +49,15 @@ const api: Record<string, unknown> = {
   "/api/reports/rows": { columns: ["Case ID", "Customer", "Mobile", "Bank", "Stage"], rows: [["1042", "Ravi Kumar", "9848012345", "HDFC", "Under sanction"]] },
   "/api/config/stages": stages,
   "/api/cases/1042": caseRow,
+  "/api/leads": [leadRow],
+  "/api/leads/1": { lead: leadRow, contacts: leadContacts },
   "/api/cases/1042/history": [{ id: 1, reached_at: "2026-11-03T04:44:00Z", stage_code: "received", stage_name: "Received", changed_by: "Priya Sharma" }],
   "/api/cases/1042/documents": [],
   "/api/config/banks/1/stages": stages,
-  "/api/customers/5": { id: 5, name: caseRow.customer_name, mobile: "9848012345", email: "ravi.kumar@example.com", status: "active", cases: [caseRow] },
+  "/api/customers/5": { id: 5, name: caseRow.customer_name, mobile: "9848012345", email: "ravi.kumar@example.com", status: "active", cases: [caseRow], leads: [leadRow] },
 };
 
-for (const path of ["/", "/cases/1042", "/customers/5", "/reports", "/projects", "/projects/4"]) {
+for (const path of ["/", "/cases/1042", "/customers/5", "/leads/1", "/reports", "/projects", "/projects/4"]) {
   test(`signed-in ${path} has no horizontal scroll at 360 px`, async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 740 });
     await page.route("**/api/**", (route) => {

@@ -1,7 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, upload } from "../api/client";
-import type { Case, CaseRow, Customer, DocumentInfo, Project, Stage, StageEvent, StaffUser } from "../api/types";
+import type { Case, CaseRow, Customer, DocumentInfo, LeadContact, Project, Stage, StageEvent } from "../api/types";
+import { AddCaseDialog } from "../components/AddCaseDialog";
+import { AssignDialog } from "../components/AssignDialog";
 import { Badge } from "../components/Badge";
 import { Dialog } from "../components/Dialog";
 import { DropDialog } from "../components/DropDialog";
@@ -9,6 +11,7 @@ import { ProgressBar } from "../components/ProgressBar";
 import { ProjectPicker } from "../components/ProjectPicker";
 import { alertBox, btn, btnDanger, btnPrimary, btnSmall, card, input, istDate, label, muted, page, rupees, warnBox } from "../components/ui";
 import { MoveStageDialog } from "./case/MoveStageDialog";
+import { ContactLog } from "./lead/ContactLog";
 
 type Moving = { target: Stage | null } | null;
 
@@ -16,6 +19,7 @@ type Moving = { target: Stage | null } | null;
 export function CaseDetail() {
   const { id } = useParams();
   const caseId = Number(id);
+  const navigate = useNavigate();
   const [c, setCase] = useState<Case | null>(null);
   const [row, setRow] = useState<CaseRow | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
@@ -29,6 +33,9 @@ export function CaseDetail() {
   const [assigning, setAssigning] = useState(false);
   const [changingProject, setChangingProject] = useState(false);
   const [dropping, setDropping] = useState(false);
+  const [changingUnit, setChangingUnit] = useState(false);
+  const [addingCase, setAddingCase] = useState(false);
+  const [contacts, setContacts] = useState<LeadContact[]>([]);
 
   async function load() {
     const [caseData, hist, docList] = await Promise.all([
@@ -46,6 +53,10 @@ export function CaseDetail() {
     setStages([...stageList].sort((a, b) => a.sort_order - b.sort_order));
     setCustomer(cust);
     setRow(cust?.cases?.find((x) => x.id === caseData.id) ?? null);
+    if (caseData.lead_id) {
+      api.request<{ contacts: LeadContact[] }>("GET", `/api/leads/${caseData.lead_id}`)
+        .then((r) => setContacts(r.contacts)).catch(() => setContacts([]));
+    }
   }
 
   useEffect(() => {
@@ -91,11 +102,12 @@ export function CaseDetail() {
       <section className={card}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold">Case #{c.id}{row ? ` · ${row.bank_name} · ${row.project_name}` : ""}</h1>
-            <p className={`${muted} mt-1`}>
-              <Link to={`/customers/${c.customer_id}`} className="text-blue-700">{customer?.name ?? "Customer"}</Link>
-              {customer ? ` · ${customer.mobile}` : ""}
-              {c.tracking_number ? ` · Tracking ${c.tracking_number}` : ""}
+            <h1 className="text-2xl font-bold">
+              <Link to={`/customers/${c.customer_id}`} className="text-slate-900 hover:underline">{customer?.name ?? "Customer"}</Link>
+            </h1>
+            <p className="mt-1 text-base text-slate-500">
+              {customer && <><a href={`tel:${customer.mobile}`} className="font-semibold text-blue-700">{customer.mobile}</a> · </>}
+              {row ? `${row.bank_name} · ` : ""}Case #{c.id}
             </p>
           </div>
           <div className="text-right">
@@ -165,16 +177,37 @@ export function CaseDetail() {
               </ul>
             )}
           </section>
-          <section className={card}>
-            <h2 className="mb-1 font-semibold">Details</h2>
-            <p className={muted}>
-              Assigned to <b className="text-slate-900">{row?.assignee_name ?? "…"}</b> ·{" "}
-              <button type="button" aria-label="Change assignee" className="text-blue-700" onClick={() => setAssigning(true)}>change</button>
-              <br />Project <b className="text-slate-900">{row?.project_name ?? "…"}</b>
-              {c.status !== "dropped" && <> · <button type="button" aria-label="Change project" className="text-blue-700" onClick={() => setChangingProject(true)}>change</button></>}
-              <br />Opened {istDate(c.created_at)}
-            </p>
+          <section aria-label="Details" className={card}>
+            <h2 className="mb-2 font-semibold">Details</h2>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-base">
+              <dt className="text-slate-500">Project</dt>
+              <dd className="font-semibold">
+                {row?.project_name ?? "…"}
+                {c.status !== "dropped" && <button type="button" aria-label="Change project" className="ml-2 text-sm font-normal text-blue-700" onClick={() => setChangingProject(true)}>change</button>}
+              </dd>
+              <dt className="text-slate-500">Unit no.</dt>
+              <dd className="font-semibold">
+                {c.unit_number || <span className="font-normal text-slate-500">Not set</span>}
+                {c.status !== "dropped" && <button type="button" aria-label="Change unit no." className="ml-2 text-sm font-normal text-blue-700" onClick={() => setChangingUnit(true)}>change</button>}
+              </dd>
+              {c.tracking_number && <><dt className="text-slate-500">Tracking no.</dt><dd className="font-semibold">{c.tracking_number}</dd></>}
+              <dt className="text-slate-500">Assigned to</dt>
+              <dd className="font-semibold">
+                {row?.assignee_name ?? "…"}
+                <button type="button" aria-label="Change assignee" className="ml-2 text-sm font-normal text-blue-700" onClick={() => setAssigning(true)}>change</button>
+              </dd>
+              <dt className="text-slate-500">Opened</dt><dd className="font-semibold">{istDate(c.created_at)}</dd>
+            </dl>
           </section>
+          {c.lead_id && (
+            <section className={card}>
+              <h2 className="mb-1 font-semibold">Contact log (from lead)</h2>
+              <ContactLog contacts={contacts} />
+            </section>
+          )}
+          {customer && customer.status === "active" && (
+            <button type="button" className={btn} onClick={() => setAddingCase(true)}>+ New case for {customer.name.trim().split(/\s+/)[0]}</button>
+          )}
           {active && <button type="button" className={btnDanger} onClick={() => setDropping(true)}>Drop this case…</button>}
         </aside>
       </div>
@@ -182,7 +215,12 @@ export function CaseDetail() {
       <MoveStageDialog open={moving !== null} caseData={c} stages={stages} target={moving?.target ?? null} onClose={() => setMoving(null)} onMoved={moved} />
       <UploadDialog open={uploading} caseId={caseId} onClose={() => setUploading(false)} onUploaded={async () => { setUploading(false); setDocs(await api.request<DocumentInfo[]>("GET", `/api/cases/${caseId}/documents`)); }} />
       <ProjectDialog open={changingProject} caseId={caseId} current={c.project_id} onClose={() => setChangingProject(false)} onSaved={async () => { setChangingProject(false); await load(); }} />
-      <AssignDialog open={assigning} caseId={caseId} current={c.assignee_id} onClose={() => setAssigning(false)} onSaved={async () => { setAssigning(false); await load(); }} />
+      <UnitDialog open={changingUnit} caseId={caseId} current={c.unit_number ?? ""} onClose={() => setChangingUnit(false)} onSaved={async () => { setChangingUnit(false); await load(); }} />
+      {customer && (
+        <AddCaseDialog open={addingCase} customerId={customer.id} customerName={customer.name} onClose={() => setAddingCase(false)}
+          onSaved={(nc) => { setAddingCase(false); navigate(`/cases/${nc.id}`); }} />
+      )}
+      <AssignDialog open={assigning} title="Assign case" path={`/api/cases/${caseId}/assign`} current={c.assignee_id} onClose={() => setAssigning(false)} onSaved={async () => { setAssigning(false); await load(); }} />
       <DropDialog
         open={dropping}
         title={`Drop case #${c.id}?`}
@@ -282,35 +320,30 @@ function ProjectDialog({ open, caseId, current, onClose, onSaved }: { open: bool
   );
 }
 
-function AssignDialog({ open, caseId, current, onClose, onSaved }: { open: boolean; caseId: number; current: number; onClose: () => void; onSaved: () => void }) {
-  const [users, setUsers] = useState<StaffUser[]>([]);
-  const [assigneeId, setAssigneeId] = useState(String(current));
+function UnitDialog({ open, caseId, current, onClose, onSaved }: { open: boolean; caseId: number; current: string; onClose: () => void; onSaved: () => void }) {
+  const [unit, setUnit] = useState(current);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    setAssigneeId(String(current));
-    api.request<StaffUser[]>("GET", "/api/users").then(setUsers).catch(() => setUsers([]));
+    setUnit(current);
+    setError(null);
   }, [open, current]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     try {
-      await api.request("POST", `/api/cases/${caseId}/assign`, { assignee_id: Number(assigneeId) });
+      await api.request("POST", `/api/cases/${caseId}/unit`, { unit_number: unit.trim() });
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not reassign the case.");
+      setError(err instanceof ApiError ? err.message : "Could not change the unit no.");
     }
   }
 
   return (
-    <Dialog open={open} title="Assign case" onClose={onClose}>
+    <Dialog open={open} title="Change unit no." onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
-        <label className={label}>Assigned to
-          <select className={input} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-          </select>
-        </label>
+        <label className={label}>Unit no.<input className={input} placeholder="Flat, villa or plot number" value={unit} onChange={(e) => setUnit(e.target.value.toUpperCase())} /></label>
         {error && <p role="alert" className={alertBox}>{error}</p>}
         <div className="flex gap-2">
           <button type="submit" className={btnPrimary}>Save</button>

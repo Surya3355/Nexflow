@@ -10,7 +10,7 @@ import (
 
 type AlertLog struct {
 	ID              int64
-	CaseID          int64
+	CaseID          pgtype.Int8
 	RecipientUserID int64
 	Kind            string
 	DueOn           pgtype.Date
@@ -18,6 +18,7 @@ type AlertLog struct {
 	QueuedAt        pgtype.Timestamptz
 	Attempts        int32
 	LastError       pgtype.Text
+	LeadID          pgtype.Int8
 }
 
 type Archive struct {
@@ -79,6 +80,8 @@ type Case struct {
 	UpdatedAt          pgtype.Timestamptz
 	UpdatedBy          pgtype.Int8
 	ProjectID          int64
+	LeadID             pgtype.Int8
+	UnitNumber         pgtype.Text
 }
 
 type CaseAssignmentEvent struct {
@@ -138,6 +141,34 @@ type DropdownValue struct {
 	CreatedBy pgtype.Int8
 	UpdatedAt pgtype.Timestamptz
 	UpdatedBy pgtype.Int8
+}
+
+type Lead struct {
+	ID              int64
+	CustomerID      int64
+	ProjectID       int64
+	AssigneeID      int64
+	Status          string
+	NextCallDate    pgtype.Date
+	DroppedReasonID pgtype.Int8
+	DroppedRemark   pgtype.Text
+	DroppedAt       pgtype.Timestamptz
+	DroppedBy       pgtype.Int8
+	ConvertedAt     pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+	CreatedBy       pgtype.Int8
+	UpdatedAt       pgtype.Timestamptz
+	UpdatedBy       pgtype.Int8
+}
+
+type LeadContact struct {
+	ID           int64
+	LeadID       int64
+	Response     string
+	Remark       string
+	NextCallDate pgtype.Date
+	CreatedAt    pgtype.Timestamptz
+	CreatedBy    pgtype.Int8
 }
 
 type Project struct {
