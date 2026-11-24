@@ -1,7 +1,7 @@
 -- name: InsertCase :one
 INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, created_by, updated_by, project_id,
-                   tracking_number, lead_id, unit_number)
-VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10)
+                   tracking_number, lead_id, unit_number, builder_contact_id)
+VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11)
 RETURNING id;
 
 -- name: InsertCaseStageEvent :exec
@@ -14,11 +14,11 @@ VALUES ($1, $2, $3, $4, $5);
 
 -- name: GetCase :one
 SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
-       lead_id, unit_number
+       lead_id, unit_number, builder_contact_id
 FROM cases WHERE id = $1;
 
 -- name: LockCase :one
-SELECT id, customer_id, bank_id, current_stage_id, status, tracking_number, assignee_id, project_id
+SELECT id, customer_id, bank_id, current_stage_id, status, tracking_number, assignee_id, project_id, builder_contact_id
 FROM cases WHERE id = $1 FOR UPDATE;
 
 -- name: GetUserActive :one
@@ -92,14 +92,14 @@ SELECT id, name, mobile, COALESCE(email, '')::text AS email, status FROM custome
 
 -- name: CasesForCustomer :many
 SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
-       lead_id, unit_number
+       lead_id, unit_number, builder_contact_id
 FROM cases WHERE customer_id = $1 ORDER BY created_at, id;
 
 -- name: ListCases :many
 -- Each filter is optional (NULL means no filter). Filters combine with AND.
 -- Dropped cases are listed too, with their status.
 SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
-       lead_id, unit_number
+       lead_id, unit_number, builder_contact_id
 FROM cases
 WHERE (sqlc.narg('stage_id')::bigint IS NULL OR current_stage_id = sqlc.narg('stage_id')::bigint)
   AND (sqlc.narg('bank_id')::bigint IS NULL OR bank_id = sqlc.narg('bank_id')::bigint)
@@ -121,7 +121,7 @@ ORDER BY e.reached_at, e.id;
 -- ListCases plus the names and stage progress the case list shows.
 -- stage_count uses the bank's own stages when it has any, else the standard stages.
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
-       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number,
+       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number, k.builder_contact_id,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
        s.name AS stage_name, s.code AS stage_code,
        (SELECT count(*) FROM stages x
@@ -156,7 +156,7 @@ ORDER BY k.created_at DESC, k.id DESC;
 -- and that stage is not Disbursed. Oldest first.
 SELECT * FROM (
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
-       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number,
+       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number, k.builder_contact_id,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
        s.name AS stage_name, s.code AS stage_code,
        (SELECT count(*) FROM stages x
@@ -183,8 +183,27 @@ WHERE r.needs_document
    OR (r.stage_since <= sqlc.arg('stuck_before')::timestamptz AND r.stage_code <> 'disbursed')
 ORDER BY r.stage_since, r.id;
 
--- name: UpdateCaseProject :exec
-UPDATE cases SET project_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1;
+-- name: UpdateCaseProject :one
+-- The case takes the new project's first active builder contact (none for NA
+-- or a project with no contacts yet).
+UPDATE cases AS k SET project_id = sqlc.arg(project_id)::bigint, updated_at = now(), updated_by = sqlc.arg(updated_by),
+       builder_contact_id = (SELECT pc.id FROM project_contacts pc
+                             WHERE pc.project_id = sqlc.arg(project_id)::bigint AND pc.removed_at IS NULL ORDER BY pc.id LIMIT 1)
+WHERE k.id = sqlc.arg(id)
+RETURNING k.builder_contact_id;
+
+-- name: ProjectHasActiveContact :one
+SELECT EXISTS (SELECT 1 FROM project_contacts WHERE project_id = $1 AND removed_at IS NULL)::boolean;
+
+-- name: ActiveContactInProject :one
+SELECT EXISTS (SELECT 1 FROM project_contacts WHERE id = $1 AND project_id = $2 AND removed_at IS NULL)::boolean;
+
+-- name: GetBuilderContact :one
+SELECT id, name, phone, COALESCE(email, '')::text AS email, COALESCE(label, '')::text AS label, (removed_at IS NOT NULL)::boolean AS removed
+FROM project_contacts WHERE id = $1;
+
+-- name: SetCaseBuilderContact :exec
+UPDATE cases SET builder_contact_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1;
 
 -- name: LockCustomerStatus :one
 SELECT status FROM customers WHERE id = $1 FOR UPDATE;

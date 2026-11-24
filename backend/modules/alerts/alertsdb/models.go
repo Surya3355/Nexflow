@@ -82,6 +82,7 @@ type Case struct {
 	ProjectID          int64
 	LeadID             pgtype.Int8
 	UnitNumber         pgtype.Text
+	BuilderContactID   pgtype.Int8
 }
 
 type CaseAssignmentEvent struct {
@@ -144,21 +145,22 @@ type DropdownValue struct {
 }
 
 type Lead struct {
-	ID              int64
-	CustomerID      int64
-	ProjectID       int64
-	AssigneeID      int64
-	Status          string
-	NextCallDate    pgtype.Date
-	DroppedReasonID pgtype.Int8
-	DroppedRemark   pgtype.Text
-	DroppedAt       pgtype.Timestamptz
-	DroppedBy       pgtype.Int8
-	ConvertedAt     pgtype.Timestamptz
-	CreatedAt       pgtype.Timestamptz
-	CreatedBy       pgtype.Int8
-	UpdatedAt       pgtype.Timestamptz
-	UpdatedBy       pgtype.Int8
+	ID               int64
+	CustomerID       int64
+	ProjectID        int64
+	AssigneeID       int64
+	Status           string
+	NextCallDate     pgtype.Date
+	DroppedReasonID  pgtype.Int8
+	DroppedRemark    pgtype.Text
+	DroppedAt        pgtype.Timestamptz
+	DroppedBy        pgtype.Int8
+	ConvertedAt      pgtype.Timestamptz
+	CreatedAt        pgtype.Timestamptz
+	CreatedBy        pgtype.Int8
+	UpdatedAt        pgtype.Timestamptz
+	UpdatedBy        pgtype.Int8
+	BuilderContactID pgtype.Int8
 }
 
 type LeadContact struct {
@@ -175,6 +177,22 @@ type Project struct {
 	ID        int64
 	Name      string
 	IsSystem  bool
+	CreatedAt pgtype.Timestamptz
+	CreatedBy pgtype.Int8
+	UpdatedAt pgtype.Timestamptz
+	UpdatedBy pgtype.Int8
+	Type      pgtype.Text
+	Address   string
+}
+
+type ProjectContact struct {
+	ID        int64
+	ProjectID int64
+	Name      string
+	Phone     string
+	Email     pgtype.Text
+	Label     pgtype.Text
+	RemovedAt pgtype.Timestamptz
 	CreatedAt pgtype.Timestamptz
 	CreatedBy pgtype.Int8
 	UpdatedAt pgtype.Timestamptz

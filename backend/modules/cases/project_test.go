@@ -62,7 +62,7 @@ func TestChangeProjectAudited(t *testing.T) {
 	if len(entries) != 1 || entries[0].Action != "case.project_changed" {
 		t.Fatalf("audit = %+v, want one case.project_changed", entries)
 	}
-	d, ok := entries[0].Details.(map[string]int64)
+	d, ok := entries[0].Details.(map[string]any)
 	if !ok || d["from"] != f.naProject || d["to"] != prestige {
 		t.Fatalf("details = %#v, want from %d to %d", entries[0].Details, f.naProject, prestige)
 	}

@@ -24,6 +24,7 @@ const caseRow = {
 function renderAt(path: string) {
   const spy = mockApi({
     "GET /api/config/projects": { body: projects },
+    "GET /api/config/projects/4": { body: { ...projects[1], type: "villas", address: "Road", active_contacts: 0, contacts: [] } },
     "GET /api/config/banks": { body: [{ id: 1, name: "HDFC" }] },
     "GET /api/users": { body: [{ id: 7, full_name: "Priya", username: "priya" }] },
     "GET /api/cases": { body: [caseRow] },

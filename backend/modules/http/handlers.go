@@ -404,7 +404,40 @@ func caseJSON(c cases.Case) map[string]any {
 	if c.UnitNumber != nil {
 		out["unit_number"] = *c.UnitNumber
 	}
+	out["builder_contact_id"], out["builder_contact"] = nil, nil
+	if c.BuilderContactID != nil {
+		out["builder_contact_id"] = *c.BuilderContactID
+	}
+	if b := c.BuilderContact; b != nil {
+		out["builder_contact"] = builderContactJSON(b.ID, b.Name, b.Phone, b.Email, b.Label, b.Removed)
+	}
 	return out
+}
+
+// builderContactJSON is the contact a lead or case points to (spec 2026-11-24 §4.3).
+func builderContactJSON(id int64, name, phone, email, label string, removed bool) map[string]any {
+	return map[string]any{"id": id, "name": name, "phone": phone, "email": email, "label": label, "removed": removed}
+}
+
+// setCaseBuilderContact points a case at another contact of its project (all staff).
+func (h *handlers) setCaseBuilderContact(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		badID(w)
+		return
+	}
+	var in struct {
+		ContactID int64 `json:"contact_id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	c, err := h.d.Cases.SetBuilderContact(r.Context(), actor(r), id, in.ContactID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, caseJSON(c))
 }
 
 func (h *handlers) createCase(w http.ResponseWriter, r *http.Request) {
@@ -418,6 +451,7 @@ func (h *handlers) createCase(w http.ResponseWriter, r *http.Request) {
 		UnitNumber     string `json:"unit_number"`
 		StartAt        string `json:"start_at"`
 		TrackingNumber string `json:"tracking_number"`
+		BuilderContact int64  `json:"builder_contact_id"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -425,6 +459,7 @@ func (h *handlers) createCase(w http.ResponseWriter, r *http.Request) {
 	c, err := h.d.Cases.Create(r.Context(), actor(r), cases.NewCase{
 		CustomerID: in.CustomerID, BankID: in.BankID, ProjectID: in.ProjectID, LoanAmount: in.LoanAmount, AssigneeID: in.AssigneeID,
 		BringBack: in.BringBack, UnitNumber: in.UnitNumber, StartAt: in.StartAt, TrackingNumber: in.TrackingNumber,
+		BuilderContactID: in.BuilderContact,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -1002,7 +1037,43 @@ func (h *handlers) standardStages(w http.ResponseWriter, r *http.Request) {
 
 // projectJSON is a project as the API presents it.
 func projectJSON(p workflows.Project) map[string]any {
-	return map[string]any{"id": p.ID, "name": p.Name, "is_system": p.IsSystem, "open_cases": p.OpenCases, "total_cases": p.TotalCases}
+	out := map[string]any{
+		"id": p.ID, "name": p.Name, "is_system": p.IsSystem, "open_cases": p.OpenCases, "total_cases": p.TotalCases,
+		"type": nil, "address": p.Address, "active_contacts": p.ActiveContacts,
+	}
+	if p.Type != nil {
+		out["type"] = *p.Type
+	}
+	if p.Contacts != nil {
+		cs := make([]map[string]any, 0, len(p.Contacts))
+		for _, c := range p.Contacts {
+			cs = append(cs, map[string]any{"id": c.ID, "name": c.Name, "phone": c.Phone, "email": c.Email, "label": c.Label})
+		}
+		out["contacts"] = cs
+	}
+	return out
+}
+
+// projectIn is the whole project form (spec 2026-11-24 §4.2).
+type projectIn struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Address  string `json:"address"`
+	Contacts []struct {
+		ID    int64  `json:"id"`
+		Name  string `json:"name"`
+		Phone string `json:"phone"`
+		Email string `json:"email"`
+		Label string `json:"label"`
+	} `json:"contacts"`
+}
+
+func (in projectIn) input() workflows.ProjectInput {
+	out := workflows.ProjectInput{Name: in.Name, Type: in.Type, Address: in.Address}
+	for _, c := range in.Contacts {
+		out.Contacts = append(out.Contacts, workflows.ContactInput{ID: c.ID, Name: c.Name, Phone: c.Phone, Email: c.Email, Label: c.Label})
+	}
+	return out
 }
 
 // listProjects returns every project, NA first (all signed-in staff).
@@ -1019,15 +1090,28 @@ func (h *handlers) listProjects(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// createProject adds a project (admin only).
-func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Name string `json:"name"`
+// getProject returns one project with its active contacts (all signed-in staff).
+func (h *handlers) getProject(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		badID(w)
+		return
 	}
+	p, err := h.d.Workflows.GetProject(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, projectJSON(p))
+}
+
+// createProject adds a complete project with its contacts (admin only).
+func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
+	var in projectIn
 	if !decode(w, r, &in) {
 		return
 	}
-	p, err := h.d.Workflows.CreateProject(r.Context(), actor(r), in.Name)
+	p, err := h.d.Workflows.CreateProject(r.Context(), actor(r), in.input())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1035,20 +1119,18 @@ func (h *handlers) createProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, projectJSON(p))
 }
 
-// renameProject changes a project's name (admin only; NA is locked).
-func (h *handlers) renameProject(w http.ResponseWriter, r *http.Request) {
+// saveProject replaces a project's details and contacts (admin only; NA is locked).
+func (h *handlers) saveProject(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
 	if !ok {
 		badID(w)
 		return
 	}
-	var in struct {
-		Name string `json:"name"`
-	}
+	var in projectIn
 	if !decode(w, r, &in) {
 		return
 	}
-	p, err := h.d.Workflows.RenameProject(r.Context(), actor(r), id, in.Name)
+	p, err := h.d.Workflows.SaveProject(r.Context(), actor(r), id, in.input())
 	if err != nil {
 		writeError(w, err)
 		return

@@ -19,7 +19,7 @@ function setup(fromLead: boolean, post: { status?: number; body?: unknown } = { 
   const onSaved = vi.fn();
   render(
     <AddCaseDialog open onClose={() => {}} onSaved={onSaved} customerName="Ravi Kumar" customerId={5}
-      fromLead={fromLead ? { id: 9, projectName: "Green Villas", assigneeId: 2 } : undefined} />,
+      fromLead={fromLead ? { id: 9, projectId: 4, projectName: "Green Villas", assigneeId: 2, builderContactId: null } : undefined} />,
   );
   return { spy, onSaved, dialog: screen.getByRole("dialog") };
 }
@@ -93,5 +93,69 @@ describe("AddCaseDialog", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Open case" }));
     expect(within(dialog).getByRole("alert")).toHaveTextContent("Choose who it is assigned to.");
     expect(bodyOf(spy, "POST /api/cases")).toBeUndefined();
+  });
+});
+
+const villas = {
+  id: 4, name: "Green Villas", is_system: false, open_cases: 0, total_cases: 0, type: "villas", address: "Road", active_contacts: 2,
+  contacts: [
+    { id: 21, name: "Ravi", phone: "9000000021", email: "", label: "Sales office" },
+    { id: 22, name: "Suresh", phone: "9000000022", email: "", label: "Site office" },
+  ],
+};
+
+describe("AddCaseDialog builder contact", () => {
+  function setupContacts(builderContactId: number | null) {
+    const spy = mockApi({
+      "GET /api/config/banks": { body: [{ id: 1, name: "HDFC" }] },
+      "GET /api/users": { body: [{ id: 2, full_name: "Anil", username: "anil" }] },
+      "GET /api/config/projects/4": { body: villas },
+      "POST /api/leads/9/case": { status: 201, body: saved },
+    });
+    const onSaved = vi.fn();
+    render(
+      <AddCaseDialog open onClose={() => {}} onSaved={onSaved} customerName="Ravi Kumar"
+        fromLead={{ id: 9, projectId: 4, projectName: "Green Villas", assigneeId: 2, builderContactId }} />,
+    );
+    return { spy, onSaved, dialog: screen.getByRole("dialog") };
+  }
+
+  async function fillAndSave(dialog: HTMLElement) {
+    await within(dialog).findByRole("option", { name: "HDFC" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Bank for new case"), "1");
+    await userEvent.type(within(dialog).getByLabelText("Loan amount (₹)"), "100000");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Open case" }));
+  }
+
+  it("prefills the lead's contact and sends it", async () => {
+    const { spy, dialog, onSaved } = setupContacts(22);
+    const select = await within(dialog).findByLabelText("Builder contact");
+    await waitFor(() => expect(select).toHaveValue("22"));
+    await fillAndSave(dialog);
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(bodyOf(spy, "POST /api/leads/9/case")).toMatchObject({ builder_contact_id: 22 });
+  });
+
+  it("uses the first active contact when the lead's contact was removed", async () => {
+    const { spy, dialog, onSaved } = setupContacts(99);
+    const select = await within(dialog).findByLabelText("Builder contact");
+    await waitFor(() => expect(select).toHaveValue("21"));
+    await fillAndSave(dialog);
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(bodyOf(spy, "POST /api/leads/9/case")).toMatchObject({ builder_contact_id: 21 });
+  });
+
+  it("has no contact select on NA and sends no contact", async () => {
+    const { spy, dialog, onSaved } = setup(false);
+    await within(dialog).findByRole("option", { name: "HDFC" });
+    await userEvent.type(within(dialog).getByRole("combobox", { name: "Project" }), "NA");
+    await userEvent.click(within(dialog).getByRole("option", { name: "NA" }));
+    expect(within(dialog).queryByLabelText("Builder contact")).not.toBeInTheDocument();
+    await userEvent.selectOptions(within(dialog).getByLabelText("Bank for new case"), "1");
+    await userEvent.type(within(dialog).getByLabelText("Loan amount (₹)"), "100000");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Assigned to for new case"), "2");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Open case" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(bodyOf(spy, "POST /api/cases")).not.toHaveProperty("builder_contact_id");
   });
 });

@@ -288,3 +288,31 @@ describe("CaseDetail documents", () => {
     });
   });
 });
+
+describe("CaseDetail builder contact", () => {
+  const contact = { id: 21, name: "Ravi", phone: "9876543210", email: "", label: "Sales office", removed: false };
+  const prestige = { id: 4, name: "Prestige", is_system: false, open_cases: 0, total_cases: 0, type: "villas", address: "Road", active_contacts: 2,
+    contacts: [contact, { id: 22, name: "Suresh", phone: "9000000022", email: "", label: "" }] };
+  const withContact = { ...aCase, project_id: 4, builder_contact_id: 21, builder_contact: contact };
+
+  it("shows the contact under Details and changes it", async () => {
+    const spy = renderCase({
+      "GET /api/config/projects/4": { body: prestige },
+      "POST /api/cases/11/builder-contact": { body: { ...withContact, builder_contact_id: 22 } },
+    }, standard, withContact);
+    const details = await screen.findByRole("region", { name: "Details" });
+    expect(await within(details).findByRole("link", { name: "9876543210" })).toHaveAttribute("href", "tel:+919876543210");
+    await userEvent.click(within(details).getByRole("button", { name: "Change builder contact" }));
+    const dialog = await screen.findByRole("dialog", { name: "Builder contact" });
+    await userEvent.click(await within(dialog).findByLabelText(/Suresh/));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(bodyOf(spy, "POST /api/cases/11/builder-contact")).toEqual({ contact_id: 22 }));
+  });
+
+  it("dropped case shows the contact without a change button", async () => {
+    renderCase({}, standard, { ...withContact, status: "dropped" });
+    const details = await screen.findByRole("region", { name: "Details" });
+    expect(await within(details).findByText(/Sales office · Ravi/)).toBeInTheDocument();
+    expect(within(details).queryByRole("button", { name: "Change builder contact" })).toBeNull();
+  });
+});

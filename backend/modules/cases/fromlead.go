@@ -22,6 +22,8 @@ type FromLead struct {
 	UnitNumber     string
 	StartAt        string
 	TrackingNumber string
+	// BuilderContactID: see NewCase.
+	BuilderContactID int64
 }
 
 // CreateFromLead opens a case from an open lead and marks the lead converted,
@@ -60,6 +62,7 @@ func (s *Service) CreateFromLead(ctx context.Context, actor access.User, leadID 
 	nc := NewCase{
 		CustomerID: lead.CustomerID, BankID: in.BankID, ProjectID: lead.ProjectID, LoanAmount: in.LoanAmount,
 		AssigneeID: in.AssigneeID, UnitNumber: in.UnitNumber, StartAt: in.StartAt, TrackingNumber: in.TrackingNumber,
+		BuilderContactID: in.BuilderContactID,
 	}
 	p, err := s.prepare(txCtx, nc)
 	if err != nil {

@@ -2,13 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Bank, CaseRow, Project, StaffUser } from "../api/types";
-import { btn, muted, page } from "../components/ui";
+import { btn, card, muted, page } from "../components/ui";
+import { projectTypeLabel } from "../api/projectTypes";
 import { CaseTable } from "./home/CaseTable";
 
 const chipSelect = "rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 hover:border-slate-400";
 
 /**
- * One project: all its cases for every role (no "My cases" default) and a CSV
+ * One project: its type, address and builder contacts (spec 2026-11-24 §4.4),
+ * then all its cases for every role (no "My cases" default) and a CSV
  * download with the same filters (spec 2026-11-21 §4.5).
  */
 export function ProjectDetail() {
@@ -22,8 +24,8 @@ export function ProjectDetail() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.request<Project[]>("GET", "/api/config/projects")
-      .then((ps) => setProject(ps.find((p) => String(p.id) === id) ?? null))
+    api.request<Project>("GET", `/api/config/projects/${id}`)
+      .then(setProject)
       .catch(() => setProject(null));
     api.request<Bank[]>("GET", "/api/config/banks").then(setBanks).catch(() => setBanks([]));
     api.request<StaffUser[]>("GET", "/api/users").then(setUsers).catch(() => setUsers([]));
@@ -50,6 +52,30 @@ export function ProjectDetail() {
         <h1 className="min-w-0 break-words text-xl font-semibold">{project?.name ?? "Project"}</h1>
         <a className={btn} href={`/api/reports/export.csv?${qs}`}>⬇ Download CSV</a>
       </div>
+      {project && !project.is_system && (project.type || project.address || (project.contacts?.length ?? 0) > 0) && (
+        <section aria-label="About this project" className={card}>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-base">
+            {project.type && <><dt className="text-slate-500">Type</dt><dd className="font-semibold">{projectTypeLabel(project.type)}</dd></>}
+            {project.address && <><dt className="text-slate-500">Address</dt><dd className="min-w-0 break-words font-semibold">{project.address}</dd></>}
+            {(project.contacts ?? []).length > 0 && (
+              <>
+                <dt className="text-slate-500">Contacts</dt>
+                <dd className="min-w-0">
+                  <ul className="space-y-1">
+                    {(project.contacts ?? []).map((c) => (
+                      <li key={c.id} className="min-w-0 [overflow-wrap:anywhere]">
+                        <span className="font-semibold">{[c.label, c.name].filter(Boolean).join(" · ")}</span>{" "}
+                        <a href={`tel:+91${c.phone}`} className="text-blue-700">{c.phone}</a>
+                        {c.email && <> · <a href={`mailto:${c.email}`} className="text-blue-700">{c.email}</a></>}
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </>
+            )}
+          </dl>
+        </section>
+      )}
       <div className="flex flex-wrap gap-1.5">
         <select aria-label="Bank" className={chipSelect} value={bankId} onChange={(e) => setBankId(e.target.value)}>
           <option value="">Bank: all</option>

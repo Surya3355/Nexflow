@@ -5,9 +5,9 @@ import { ProjectPicker } from "./ProjectPicker";
 import type { Project } from "../api/types";
 
 const projects: Project[] = [
-  { id: 1, name: "NA", is_system: true, open_cases: 3, total_cases: 5 },
-  { id: 2, name: "Prestige Lakeside", is_system: false, open_cases: 1, total_cases: 1 },
-  { id: 3, name: "Zenith", is_system: false, open_cases: 0, total_cases: 0 },
+  { id: 1, name: "NA", is_system: true, open_cases: 3, total_cases: 5, type: null, address: "", active_contacts: 0 },
+  { id: 2, name: "Prestige Lakeside", is_system: false, open_cases: 1, total_cases: 1, type: null, address: "", active_contacts: 0 },
+  { id: 3, name: "Zenith", is_system: false, open_cases: 0, total_cases: 0, type: null, address: "", active_contacts: 0 },
 ];
 
 function options() {

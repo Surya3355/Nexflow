@@ -54,6 +54,11 @@ type Case struct {
 	FollowUpDate   *time.Time
 	LeadID         *int64
 	UnitNumber     *string
+	// BuilderContactID is the project contact staff call about this case
+	// (nil for NA or a project with no contacts). BuilderContact is filled
+	// by Get and the write actions, not by lists.
+	BuilderContactID *int64
+	BuilderContact   *BuilderContact
 }
 
 // toCase maps a stored case row to the Case the API presents.
@@ -67,6 +72,10 @@ func toCase(row casesdb.GetCaseRow) Case {
 	if row.LeadID.Valid {
 		id := row.LeadID.Int64
 		c.LeadID = &id
+	}
+	if row.BuilderContactID.Valid {
+		id := row.BuilderContactID.Int64
+		c.BuilderContactID = &id
 	}
 	if row.FollowUpDate.Valid {
 		d := row.FollowUpDate.Time
@@ -87,6 +96,9 @@ type NewCase struct {
 	// StartAt is "received" (default) or "logged_in"; logged_in needs TrackingNumber.
 	StartAt        string
 	TrackingNumber string
+	// BuilderContactID is one of the project's active contacts; 0 means none,
+	// which is only allowed when the project has no active contacts.
+	BuilderContactID int64
 	// BringBack makes a dropped customer active again in the same
 	// transaction (spec 2026-11-21 §4.6). It does nothing for an active one.
 	BringBack bool
@@ -159,6 +171,7 @@ type prepared struct {
 	stages   []int64 // stage IDs reached at creation, in order; the last is current
 	tracking pgtype.Text
 	unit     pgtype.Text
+	contact  pgtype.Int8
 }
 
 // prepare checks everything about a new case that needs no lock.
@@ -189,6 +202,9 @@ func (s *Service) prepare(ctx context.Context, in NewCase) (prepared, error) {
 		return p, err
 	}
 	p.unit = pgtype.Text{String: unit, Valid: unit != ""}
+	if p.contact, err = s.checkContact(ctx, s.q, in.ProjectID, in.BuilderContactID); err != nil {
+		return p, err
+	}
 	start := in.StartAt
 	if start == "" {
 		start = startStageCode
@@ -233,16 +249,17 @@ func (s *Service) prepare(ctx context.Context, in NewCase) (prepared, error) {
 // case.created audit entry inside the caller's transaction.
 func (s *Service) insertTx(ctx context.Context, q *casesdb.Queries, actor access.User, in NewCase, p prepared, leadID *int64) (int64, error) {
 	id, err := q.InsertCase(ctx, casesdb.InsertCaseParams{
-		CustomerID:     in.CustomerID,
-		BankID:         in.BankID,
-		LoanAmount:     p.amount,
-		CurrentStageID: p.stages[len(p.stages)-1],
-		AssigneeID:     in.AssigneeID,
-		CreatedBy:      pgtype.Int8{Int64: actor.ID, Valid: true},
-		ProjectID:      in.ProjectID,
-		TrackingNumber: p.tracking,
-		LeadID:         int64Null(leadID),
-		UnitNumber:     p.unit,
+		CustomerID:       in.CustomerID,
+		BankID:           in.BankID,
+		LoanAmount:       p.amount,
+		CurrentStageID:   p.stages[len(p.stages)-1],
+		AssigneeID:       in.AssigneeID,
+		CreatedBy:        pgtype.Int8{Int64: actor.ID, Valid: true},
+		ProjectID:        in.ProjectID,
+		TrackingNumber:   p.tracking,
+		LeadID:           int64Null(leadID),
+		UnitNumber:       p.unit,
+		BuilderContactID: p.contact,
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError

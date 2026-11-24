@@ -19,6 +19,10 @@ export type Case = {
   lead_id?: number | null;
   /** Flat, villa or plot number. */
   unit_number?: string | null;
+  /** The project contact staff call about this case (null for NA or none yet). */
+  builder_contact_id?: number | null;
+  /** Filled on a single case (GET /api/cases/{id} and writes), not on lists. */
+  builder_contact?: BuilderContact | null;
 };
 
 export type Stage = {
@@ -49,7 +53,15 @@ export type Customer = {
 
 export type Bank = { id: number; name: string; has_own_stages?: boolean };
 /** A builder project. NA (is_system) is the fixed entry for loans without one. */
-export type Project = { id: number; name: string; is_system: boolean; open_cases: number; total_cases: number };
+export type ProjectType = "high_rise" | "apartments" | "plots" | "villas";
+/** A builder contact of one project. `removed` is set on a lead's or case's contact that admin took off the list. */
+export type BuilderContact = { id: number; name: string; phone: string; email: string; label: string; removed?: boolean };
+export type Project = {
+  id: number; name: string; is_system: boolean; open_cases: number; total_cases: number;
+  type: ProjectType | null; address: string; active_contacts: number;
+  /** Active contacts; only on GET /api/config/projects/{id} and admin saves. */
+  contacts?: BuilderContact[];
+};
 export type DropReason = { id: number; value: string };
 export type StaffUser = { id: number; full_name: string; username: string };
 
@@ -89,6 +101,8 @@ export type LeadRow = {
   created_at: string;
   converted_at: string | null;
   case_id: number | null;
+  builder_contact_id?: number | null;
+  builder_contact?: BuilderContact | null;
 };
 
 export type LeadContact = {

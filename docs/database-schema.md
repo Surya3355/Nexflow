@@ -73,6 +73,32 @@ Admin-maintained lists, starting with the dropped reasons (round 8).
 
 Unique `(category, value)`. Starter `drop_reason` values: Customer not interested; Not eligible; Rejected by bank; Customer chose another bank or DSA; Customer unreachable; Duplicate or already processed; Other.
 
+### projects (round 14, details round 15 migration 000006)
+Builder projects. NA (`is_system`) is the fixed entry for loans without a builder project. Spec `docs/superpowers/specs/2026-11-24-project-details-design.md`.
+| Column | Type | Rules |
+|---|---|---|
+| name | text | not null, unique ignoring case and spaces |
+| is_system | boolean | true only for NA |
+| type | text | nullable. `high_rise`, `apartments`, `plots`, `villas`. NULL for NA and for projects made before round 15 |
+| address | text | not null, default `''` |
+| created_at/by, updated_at/by | | Usual |
+
+NA has no type and no address (CHECK). The app requires type, address and at least one active contact on every save of a non-NA project.
+
+### project_contacts (round 15, migration 000006)
+Each project's own builder contacts. Lists of different projects are independent. Rows are never deleted.
+| Column | Type | Rules |
+|---|---|---|
+| project_id | bigint | not null, FK `projects.id` |
+| name | text | not null, not blank |
+| phone | text | not null, 10 digits |
+| email | text | nullable |
+| label | text | nullable, ≤ 40 characters (e.g. "Sales office") |
+| removed_at | timestamptz | nullable. Set when admin removes the contact from the project |
+| created_at/by, updated_at/by | | Usual |
+
+Unique `(project_id, id)` (target of the lead and case FKs). Unique `(project_id, phone)` among contacts not removed.
+
 ---
 
 ## 3. Customers and cases
@@ -118,6 +144,7 @@ A customer that still has cases cannot be hard-deleted (round 1, §10). Enforced
 | project_id | bigint | not null, FK `projects.id`. NA for loans without a builder project (round 14) |
 | lead_id | bigint | nullable, unique, FK `leads.id` `ON DELETE SET NULL`. The lead this case came from (round 15) |
 | unit_number | text | nullable, ≤ 20 characters. Flat, villa or plot number, saved in capitals (round 15) |
+| builder_contact_id | bigint | nullable. FK `(project_id, builder_contact_id)` → `project_contacts (project_id, id)`, so it is always a contact of the case's project (round 15) |
 
 Indexes: `customer_id`, `bank_id`, `current_stage_id`, `assignee_id`, `created_at`, `follow_up_date`.
 
@@ -132,6 +159,7 @@ An enquiry for one builder project, before the customer comes in. Spec `docs/sup
 | next_call_date | date | nullable. IST day; drives call due/overdue emails. Set to the day the lead is added; each contact replaces it |
 | dropped_reason_id, dropped_remark, dropped_at, dropped_by | | As on cases. Reason required when dropped |
 | converted_at | timestamptz | nullable. Set when Add case turns the lead into a case |
+| builder_contact_id | bigint | nullable. Same composite FK as on cases (round 15) |
 | created_at/by, updated_at/by | | Usual |
 
 Indexes: `customer_id`; `next_call_date` where open; unique `(customer_id, project_id)` where open (one open lead per project).

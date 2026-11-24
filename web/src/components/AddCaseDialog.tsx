@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
-import type { Bank, Case, Project, StaffUser } from "../api/types";
+import type { Bank, BuilderContact, Case, Project, StaffUser } from "../api/types";
 import { Dialog } from "./Dialog";
 import { ProjectPicker } from "./ProjectPicker";
 import { alertBox, btn, btnPrimary, input, label, muted } from "./ui";
@@ -11,7 +11,7 @@ type Props = {
   onSaved: (c: Case) => void;
   customerName: string;
   /** Adding from a lead: the project is fixed and the lead becomes the case. */
-  fromLead?: { id: number; projectName: string; assigneeId: number };
+  fromLead?: { id: number; projectId: number; projectName: string; assigneeId: number; builderContactId?: number | null };
   /** The customer, for a case added without a lead. */
   customerId?: number;
 };
@@ -34,7 +34,31 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
   const [tracking, setTracking] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [contacts, setContacts] = useState<BuilderContact[]>([]);
+  const [contactId, setContactId] = useState("");
   const sending = useRef(false);
+
+  // The project's current contacts, prefilled with the lead's contact while it
+  // is still on the list, else the first one (spec 2026-11-24 §4.3).
+  const pid = fromLead ? fromLead.projectId : projectId;
+  const isNA = !fromLead && projects.find((p) => p.id === projectId)?.is_system === true;
+  const leadContact = fromLead?.builderContactId ?? null;
+  useEffect(() => {
+    setContacts([]);
+    setContactId("");
+    if (!open || pid === null || isNA) return;
+    let live = true;
+    api.request<Project>("GET", `/api/config/projects/${pid}`)
+      .then((p) => {
+        if (!live) return;
+        const list = p.contacts ?? [];
+        setContacts(list);
+        const keep = list.find((c) => c.id === leadContact) ?? list[0];
+        setContactId(keep ? String(keep.id) : "");
+      })
+      .catch(() => live && setContacts([]));
+    return () => { live = false; };
+  }, [open, pid, isNA, leadContact]);
 
   useEffect(() => {
     if (!open) return;
@@ -63,9 +87,14 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
       setError("Enter the tracking number.");
       return;
     }
+    if (contacts.length > 0 && !contactId) {
+      setError("Choose a builder contact.");
+      return;
+    }
     const body = {
       bank_id: Number(bankId), loan_amount: amount.trim(), assignee_id: Number(assigneeId),
       unit_number: unit.trim(), start_at: startAt, tracking_number: startAt === "logged_in" ? tracking.trim() : "",
+      ...(contacts.length > 0 && contactId ? { builder_contact_id: Number(contactId) } : {}),
     };
     sending.current = true;
     setBusy(true);
@@ -91,6 +120,13 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
           <div className={label}>Project
             <ProjectPicker projects={projects} value={projectId} onChange={setProjectId} aria-label="Project" />
           </div>
+        )}
+        {contacts.length > 0 && (
+          <label className={label}>Builder contact
+            <select className={input} value={contactId} onChange={(e) => setContactId(e.target.value)}>
+              {contacts.map((c) => <option key={c.id} value={c.id}>{[c.label, c.name, c.phone].filter(Boolean).join(" · ")}</option>)}
+            </select>
+          </label>
         )}
         <label className={label}>Unit no.<input className={input} placeholder="Flat, villa or plot number" value={unit} onChange={(e) => setUnit(e.target.value.toUpperCase())} /></label>
         <label className={label}>Bank

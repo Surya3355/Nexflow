@@ -11,6 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activeContactInProject = `-- name: ActiveContactInProject :one
+SELECT EXISTS (SELECT 1 FROM project_contacts WHERE id = $1 AND project_id = $2 AND removed_at IS NULL)::boolean
+`
+
+type ActiveContactInProjectParams struct {
+	ID        int64
+	ProjectID int64
+}
+
+func (q *Queries) ActiveContactInProject(ctx context.Context, arg ActiveContactInProjectParams) (bool, error) {
+	row := q.db.QueryRow(ctx, activeContactInProject, arg.ID, arg.ProjectID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const activeUserExists = `-- name: ActiveUserExists :one
 SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND is_active)
 `
@@ -91,7 +107,9 @@ const getLeadRow = `-- name: GetLeadRow :one
 SELECT l.id, l.customer_id, l.project_id, l.assignee_id, l.status, l.next_call_date, l.created_at, l.converted_at,
        cu.name AS customer_name, cu.mobile AS customer_mobile, COALESCE(cu.email, '')::text AS customer_email,
        p.name AS project_name, u.full_name AS assignee_name,
-       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id
+       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id,
+       l.builder_contact_id, COALESCE(bc.name, '')::text AS bc_name, COALESCE(bc.phone, '')::text AS bc_phone,
+       COALESCE(bc.email, '')::text AS bc_email, COALESCE(bc.label, '')::text AS bc_label, (bc.removed_at IS NOT NULL)::boolean AS bc_removed
 FROM leads l
 JOIN customers cu ON cu.id = l.customer_id
 JOIN projects p ON p.id = l.project_id
@@ -100,26 +118,33 @@ LEFT JOIN LATERAL (
   SELECT lc.response, lc.created_at FROM lead_contacts lc WHERE lc.lead_id = l.id ORDER BY lc.created_at DESC, lc.id DESC LIMIT 1
 ) last ON true
 LEFT JOIN cases c ON c.lead_id = l.id
+LEFT JOIN project_contacts bc ON bc.id = l.builder_contact_id
 WHERE l.id = $1
 `
 
 type GetLeadRowRow struct {
-	ID             int64
-	CustomerID     int64
-	ProjectID      int64
-	AssigneeID     int64
-	Status         string
-	NextCallDate   pgtype.Date
-	CreatedAt      pgtype.Timestamptz
-	ConvertedAt    pgtype.Timestamptz
-	CustomerName   string
-	CustomerMobile string
-	CustomerEmail  string
-	ProjectName    string
-	AssigneeName   string
-	LastResponse   string
-	LastContactAt  pgtype.Timestamptz
-	CaseID         pgtype.Int8
+	ID               int64
+	CustomerID       int64
+	ProjectID        int64
+	AssigneeID       int64
+	Status           string
+	NextCallDate     pgtype.Date
+	CreatedAt        pgtype.Timestamptz
+	ConvertedAt      pgtype.Timestamptz
+	CustomerName     string
+	CustomerMobile   string
+	CustomerEmail    string
+	ProjectName      string
+	AssigneeName     string
+	LastResponse     string
+	LastContactAt    pgtype.Timestamptz
+	CaseID           pgtype.Int8
+	BuilderContactID pgtype.Int8
+	BcName           string
+	BcPhone          string
+	BcEmail          string
+	BcLabel          string
+	BcRemoved        bool
 }
 
 func (q *Queries) GetLeadRow(ctx context.Context, id int64) (GetLeadRowRow, error) {
@@ -142,6 +167,12 @@ func (q *Queries) GetLeadRow(ctx context.Context, id int64) (GetLeadRowRow, erro
 		&i.LastResponse,
 		&i.LastContactAt,
 		&i.CaseID,
+		&i.BuilderContactID,
+		&i.BcName,
+		&i.BcPhone,
+		&i.BcEmail,
+		&i.BcLabel,
+		&i.BcRemoved,
 	)
 	return i, err
 }
@@ -212,8 +243,9 @@ func (q *Queries) InsertCustomerForLead(ctx context.Context, arg InsertCustomerF
 }
 
 const insertLead = `-- name: InsertLead :one
-INSERT INTO leads (customer_id, project_id, assignee_id, next_call_date, created_by, updated_by)
-VALUES ($1, $2, $3, $4, $5, $5)
+INSERT INTO leads (customer_id, project_id, assignee_id, next_call_date, created_by, updated_by, builder_contact_id)
+VALUES ($1, $2, $3, $4, $5, $5,
+        (SELECT pc.id FROM project_contacts pc WHERE pc.project_id = $2 AND pc.removed_at IS NULL ORDER BY pc.id LIMIT 1))
 RETURNING id
 `
 
@@ -225,6 +257,8 @@ type InsertLeadParams struct {
 	CreatedBy    pgtype.Int8
 }
 
+// The lead starts with the project's first active builder contact (none for
+// NA or a project with no contacts yet).
 func (q *Queries) InsertLead(ctx context.Context, arg InsertLeadParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertLead,
 		arg.CustomerID,
@@ -253,7 +287,9 @@ const leadRowsForCustomer = `-- name: LeadRowsForCustomer :many
 SELECT l.id, l.customer_id, l.project_id, l.assignee_id, l.status, l.next_call_date, l.created_at, l.converted_at,
        cu.name AS customer_name, cu.mobile AS customer_mobile, COALESCE(cu.email, '')::text AS customer_email,
        p.name AS project_name, u.full_name AS assignee_name,
-       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id
+       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id,
+       l.builder_contact_id, COALESCE(bc.name, '')::text AS bc_name, COALESCE(bc.phone, '')::text AS bc_phone,
+       COALESCE(bc.email, '')::text AS bc_email, COALESCE(bc.label, '')::text AS bc_label, (bc.removed_at IS NOT NULL)::boolean AS bc_removed
 FROM leads l
 JOIN customers cu ON cu.id = l.customer_id
 JOIN projects p ON p.id = l.project_id
@@ -262,27 +298,34 @@ LEFT JOIN LATERAL (
   SELECT lc.response, lc.created_at FROM lead_contacts lc WHERE lc.lead_id = l.id ORDER BY lc.created_at DESC, lc.id DESC LIMIT 1
 ) last ON true
 LEFT JOIN cases c ON c.lead_id = l.id
+LEFT JOIN project_contacts bc ON bc.id = l.builder_contact_id
 WHERE l.customer_id = $1
 ORDER BY l.created_at DESC, l.id DESC
 `
 
 type LeadRowsForCustomerRow struct {
-	ID             int64
-	CustomerID     int64
-	ProjectID      int64
-	AssigneeID     int64
-	Status         string
-	NextCallDate   pgtype.Date
-	CreatedAt      pgtype.Timestamptz
-	ConvertedAt    pgtype.Timestamptz
-	CustomerName   string
-	CustomerMobile string
-	CustomerEmail  string
-	ProjectName    string
-	AssigneeName   string
-	LastResponse   string
-	LastContactAt  pgtype.Timestamptz
-	CaseID         pgtype.Int8
+	ID               int64
+	CustomerID       int64
+	ProjectID        int64
+	AssigneeID       int64
+	Status           string
+	NextCallDate     pgtype.Date
+	CreatedAt        pgtype.Timestamptz
+	ConvertedAt      pgtype.Timestamptz
+	CustomerName     string
+	CustomerMobile   string
+	CustomerEmail    string
+	ProjectName      string
+	AssigneeName     string
+	LastResponse     string
+	LastContactAt    pgtype.Timestamptz
+	CaseID           pgtype.Int8
+	BuilderContactID pgtype.Int8
+	BcName           string
+	BcPhone          string
+	BcEmail          string
+	BcLabel          string
+	BcRemoved        bool
 }
 
 func (q *Queries) LeadRowsForCustomer(ctx context.Context, customerID int64) ([]LeadRowsForCustomerRow, error) {
@@ -311,6 +354,12 @@ func (q *Queries) LeadRowsForCustomer(ctx context.Context, customerID int64) ([]
 			&i.LastResponse,
 			&i.LastContactAt,
 			&i.CaseID,
+			&i.BuilderContactID,
+			&i.BcName,
+			&i.BcPhone,
+			&i.BcEmail,
+			&i.BcLabel,
+			&i.BcRemoved,
 		); err != nil {
 			return nil, err
 		}
@@ -370,7 +419,9 @@ const listOpenLeadRows = `-- name: ListOpenLeadRows :many
 SELECT l.id, l.customer_id, l.project_id, l.assignee_id, l.status, l.next_call_date, l.created_at, l.converted_at,
        cu.name AS customer_name, cu.mobile AS customer_mobile, COALESCE(cu.email, '')::text AS customer_email,
        p.name AS project_name, u.full_name AS assignee_name,
-       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id
+       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id,
+       l.builder_contact_id, COALESCE(bc.name, '')::text AS bc_name, COALESCE(bc.phone, '')::text AS bc_phone,
+       COALESCE(bc.email, '')::text AS bc_email, COALESCE(bc.label, '')::text AS bc_label, (bc.removed_at IS NOT NULL)::boolean AS bc_removed
 FROM leads l
 JOIN customers cu ON cu.id = l.customer_id
 JOIN projects p ON p.id = l.project_id
@@ -379,6 +430,7 @@ LEFT JOIN LATERAL (
   SELECT lc.response, lc.created_at FROM lead_contacts lc WHERE lc.lead_id = l.id ORDER BY lc.created_at DESC, lc.id DESC LIMIT 1
 ) last ON true
 LEFT JOIN cases c ON c.lead_id = l.id
+LEFT JOIN project_contacts bc ON bc.id = l.builder_contact_id
 WHERE l.status = 'open'
 ORDER BY (l.next_call_date IS NOT NULL AND l.next_call_date <= $1::date) DESC,
          CASE WHEN l.next_call_date <= $1::date THEN l.next_call_date END ASC,
@@ -386,22 +438,28 @@ ORDER BY (l.next_call_date IS NOT NULL AND l.next_call_date <= $1::date) DESC,
 `
 
 type ListOpenLeadRowsRow struct {
-	ID             int64
-	CustomerID     int64
-	ProjectID      int64
-	AssigneeID     int64
-	Status         string
-	NextCallDate   pgtype.Date
-	CreatedAt      pgtype.Timestamptz
-	ConvertedAt    pgtype.Timestamptz
-	CustomerName   string
-	CustomerMobile string
-	CustomerEmail  string
-	ProjectName    string
-	AssigneeName   string
-	LastResponse   string
-	LastContactAt  pgtype.Timestamptz
-	CaseID         pgtype.Int8
+	ID               int64
+	CustomerID       int64
+	ProjectID        int64
+	AssigneeID       int64
+	Status           string
+	NextCallDate     pgtype.Date
+	CreatedAt        pgtype.Timestamptz
+	ConvertedAt      pgtype.Timestamptz
+	CustomerName     string
+	CustomerMobile   string
+	CustomerEmail    string
+	ProjectName      string
+	AssigneeName     string
+	LastResponse     string
+	LastContactAt    pgtype.Timestamptz
+	CaseID           pgtype.Int8
+	BuilderContactID pgtype.Int8
+	BcName           string
+	BcPhone          string
+	BcEmail          string
+	BcLabel          string
+	BcRemoved        bool
 }
 
 // Calls due on or before today first (oldest first), then the rest newest first.
@@ -431,6 +489,12 @@ func (q *Queries) ListOpenLeadRows(ctx context.Context, today pgtype.Date) ([]Li
 			&i.LastResponse,
 			&i.LastContactAt,
 			&i.CaseID,
+			&i.BuilderContactID,
+			&i.BcName,
+			&i.BcPhone,
+			&i.BcEmail,
+			&i.BcLabel,
+			&i.BcRemoved,
 		); err != nil {
 			return nil, err
 		}
@@ -454,14 +518,15 @@ func (q *Queries) LockCustomerStatus(ctx context.Context, id int64) (string, err
 }
 
 const lockLead = `-- name: LockLead :one
-SELECT id, customer_id, project_id, status FROM leads WHERE id = $1 FOR UPDATE
+SELECT id, customer_id, project_id, status, builder_contact_id FROM leads WHERE id = $1 FOR UPDATE
 `
 
 type LockLeadRow struct {
-	ID         int64
-	CustomerID int64
-	ProjectID  int64
-	Status     string
+	ID               int64
+	CustomerID       int64
+	ProjectID        int64
+	Status           string
+	BuilderContactID pgtype.Int8
 }
 
 func (q *Queries) LockLead(ctx context.Context, id int64) (LockLeadRow, error) {
@@ -472,6 +537,7 @@ func (q *Queries) LockLead(ctx context.Context, id int64) (LockLeadRow, error) {
 		&i.CustomerID,
 		&i.ProjectID,
 		&i.Status,
+		&i.BuilderContactID,
 	)
 	return i, err
 }
@@ -537,6 +603,21 @@ type SetLeadAssigneeParams struct {
 
 func (q *Queries) SetLeadAssignee(ctx context.Context, arg SetLeadAssigneeParams) error {
 	_, err := q.db.Exec(ctx, setLeadAssignee, arg.ID, arg.AssigneeID, arg.UpdatedBy)
+	return err
+}
+
+const setLeadBuilderContact = `-- name: SetLeadBuilderContact :exec
+UPDATE leads SET builder_contact_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1
+`
+
+type SetLeadBuilderContactParams struct {
+	ID               int64
+	BuilderContactID pgtype.Int8
+	UpdatedBy        pgtype.Int8
+}
+
+func (q *Queries) SetLeadBuilderContact(ctx context.Context, arg SetLeadBuilderContactParams) error {
+	_, err := q.db.Exec(ctx, setLeadBuilderContact, arg.ID, arg.BuilderContactID, arg.UpdatedBy)
 	return err
 }
 

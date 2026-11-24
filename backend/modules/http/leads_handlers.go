@@ -31,6 +31,10 @@ func leadJSON(l leads.Lead) map[string]any {
 	if l.CaseID != nil {
 		out["case_id"] = *l.CaseID
 	}
+	out["builder_contact_id"] = nil
+	if l.BuilderContactID != nil {
+		out["builder_contact_id"] = *l.BuilderContactID
+	}
 	return out
 }
 
@@ -48,6 +52,10 @@ func leadRowJSON(r leads.Row) map[string]any {
 	out["last_contact_at"] = timeOrNil(r.LastContactAt)
 	out["call_due"] = r.CallDue
 	out["overdue_days"] = r.OverdueDays
+	out["builder_contact"] = nil
+	if b := r.BuilderContact; b != nil {
+		out["builder_contact"] = builderContactJSON(b.ID, b.Name, b.Phone, b.Email, b.Label, b.Removed)
+	}
 	return out
 }
 
@@ -205,6 +213,26 @@ func (h *handlers) assignLead(w http.ResponseWriter, r *http.Request) {
 	h.writeLead(w, r, http.StatusOK, id)
 }
 
+// setLeadBuilderContact points an open lead at another contact of its project (all staff).
+func (h *handlers) setLeadBuilderContact(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		badID(w)
+		return
+	}
+	var in struct {
+		ContactID int64 `json:"contact_id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if _, err := h.d.Leads.SetBuilderContact(r.Context(), actor(r), id, in.ContactID); err != nil {
+		writeError(w, err)
+		return
+	}
+	h.writeLead(w, r, http.StatusOK, id)
+}
+
 func (h *handlers) dropLead(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
 	if !ok {
@@ -248,6 +276,7 @@ func (h *handlers) leadToCase(w http.ResponseWriter, r *http.Request) {
 		UnitNumber     string `json:"unit_number"`
 		StartAt        string `json:"start_at"`
 		TrackingNumber string `json:"tracking_number"`
+		BuilderContact int64  `json:"builder_contact_id"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -255,6 +284,7 @@ func (h *handlers) leadToCase(w http.ResponseWriter, r *http.Request) {
 	c, err := h.d.Cases.CreateFromLead(r.Context(), actor(r), id, cases.FromLead{
 		BankID: in.BankID, LoanAmount: in.LoanAmount, AssigneeID: in.AssigneeID,
 		UnitNumber: in.UnitNumber, StartAt: in.StartAt, TrackingNumber: in.TrackingNumber,
+		BuilderContactID: in.BuilderContact,
 	})
 	if err != nil {
 		writeError(w, err)

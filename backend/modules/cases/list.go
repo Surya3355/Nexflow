@@ -99,7 +99,7 @@ func toCaseRow(r casesdb.ListCaseRowsRow) CaseRow {
 			ID: r.ID, CustomerID: r.CustomerID, BankID: r.BankID, LoanAmount: r.LoanAmount,
 			TrackingNumber: r.TrackingNumber, CurrentStageID: r.CurrentStageID, AssigneeID: r.AssigneeID,
 			Status: r.Status, CreatedAt: r.CreatedAt, FollowUpDate: r.FollowUpDate, ProjectID: r.ProjectID,
-			LeadID: r.LeadID, UnitNumber: r.UnitNumber,
+			LeadID: r.LeadID, UnitNumber: r.UnitNumber, BuilderContactID: r.BuilderContactID,
 		}),
 		CustomerName: r.CustomerName, CustomerMobile: r.CustomerMobile, BankName: r.BankName, ProjectName: r.ProjectName,
 		StageName: r.StageName, StageCode: r.StageCode, StageOrder: int(r.StageOrder), StageCount: int(r.StageCount),

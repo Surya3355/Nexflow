@@ -42,15 +42,17 @@ func (s *Service) ChangeProject(ctx context.Context, actor access.User, caseID, 
 		return Case{}, ErrCaseDropped
 	}
 	if locked.ProjectID != projectID {
-		if err := q.UpdateCaseProject(txCtx, casesdb.UpdateCaseProjectParams{
+		newContact, err := q.UpdateCaseProject(txCtx, casesdb.UpdateCaseProjectParams{
 			ID: caseID, ProjectID: projectID, UpdatedBy: pgtype.Int8{Int64: actor.ID, Valid: true},
-		}); err != nil {
+		})
+		if err != nil {
 			return Case{}, fmt.Errorf("cases: update project: %w", err)
 		}
 		actorID, id := actor.ID, caseID
 		if err := s.rec.Record(txCtx, history.Entry{
 			ActorUserID: &actorID, Action: "case.project_changed", EntityType: "case", EntityID: &id,
-			Details: map[string]int64{"from": locked.ProjectID, "to": projectID},
+			Details: map[string]any{"from": locked.ProjectID, "to": projectID,
+				"contact_from": int8OrNil(locked.BuilderContactID), "contact_to": int8OrNil(newContact)},
 		}); err != nil {
 			return Case{}, fmt.Errorf("cases: audit: %w", err)
 		}

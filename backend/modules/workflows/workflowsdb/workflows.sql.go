@@ -12,19 +12,27 @@ import (
 )
 
 const getProject = `-- name: GetProject :one
-SELECT id, name, is_system FROM projects WHERE id = $1
+SELECT id, name, is_system, type, address FROM projects WHERE id = $1
 `
 
 type GetProjectRow struct {
 	ID       int64
 	Name     string
 	IsSystem bool
+	Type     pgtype.Text
+	Address  string
 }
 
 func (q *Queries) GetProject(ctx context.Context, id int64) (GetProjectRow, error) {
 	row := q.db.QueryRow(ctx, getProject, id)
 	var i GetProjectRow
-	err := row.Scan(&i.ID, &i.Name, &i.IsSystem)
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.IsSystem,
+		&i.Type,
+		&i.Address,
+	)
 	return i, err
 }
 
@@ -117,13 +125,15 @@ func (q *Queries) InsertDropdownValue(ctx context.Context, arg InsertDropdownVal
 }
 
 const insertProject = `-- name: InsertProject :one
-INSERT INTO projects (name, created_by, updated_by)
-VALUES ($1, $2, $2)
-RETURNING id, name, is_system
+INSERT INTO projects (name, type, address, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $4)
+RETURNING id, name, is_system, type, address
 `
 
 type InsertProjectParams struct {
 	Name      string
+	Type      pgtype.Text
+	Address   string
 	CreatedBy pgtype.Int8
 }
 
@@ -131,13 +141,52 @@ type InsertProjectRow struct {
 	ID       int64
 	Name     string
 	IsSystem bool
+	Type     pgtype.Text
+	Address  string
 }
 
 func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) (InsertProjectRow, error) {
-	row := q.db.QueryRow(ctx, insertProject, arg.Name, arg.CreatedBy)
+	row := q.db.QueryRow(ctx, insertProject,
+		arg.Name,
+		arg.Type,
+		arg.Address,
+		arg.CreatedBy,
+	)
 	var i InsertProjectRow
-	err := row.Scan(&i.ID, &i.Name, &i.IsSystem)
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.IsSystem,
+		&i.Type,
+		&i.Address,
+	)
 	return i, err
+}
+
+const insertProjectContact = `-- name: InsertProjectContact :exec
+INSERT INTO project_contacts (project_id, name, phone, email, label, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $6)
+`
+
+type InsertProjectContactParams struct {
+	ProjectID int64
+	Name      string
+	Phone     string
+	Email     pgtype.Text
+	Label     pgtype.Text
+	CreatedBy pgtype.Int8
+}
+
+func (q *Queries) InsertProjectContact(ctx context.Context, arg InsertProjectContactParams) error {
+	_, err := q.db.Exec(ctx, insertProjectContact,
+		arg.ProjectID,
+		arg.Name,
+		arg.Phone,
+		arg.Email,
+		arg.Label,
+		arg.CreatedBy,
+	)
+	return err
 }
 
 const insertStage = `-- name: InsertStage :one
@@ -183,6 +232,47 @@ func (q *Queries) InsertStage(ctx context.Context, arg InsertStageParams) (Inser
 		&i.RequiresDocument,
 	)
 	return i, err
+}
+
+const listActiveProjectContacts = `-- name: ListActiveProjectContacts :many
+SELECT id, name, phone, email, label, removed_at FROM project_contacts
+WHERE project_id = $1 AND removed_at IS NULL ORDER BY id
+`
+
+type ListActiveProjectContactsRow struct {
+	ID        int64
+	Name      string
+	Phone     string
+	Email     pgtype.Text
+	Label     pgtype.Text
+	RemovedAt pgtype.Timestamptz
+}
+
+func (q *Queries) ListActiveProjectContacts(ctx context.Context, projectID int64) ([]ListActiveProjectContactsRow, error) {
+	rows, err := q.db.Query(ctx, listActiveProjectContacts, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveProjectContactsRow
+	for rows.Next() {
+		var i ListActiveProjectContactsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Phone,
+			&i.Email,
+			&i.Label,
+			&i.RemovedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listBanks = `-- name: ListBanks :many
@@ -261,20 +351,23 @@ func (q *Queries) ListDropdownValues(ctx context.Context, category string) ([]Li
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT p.id, p.name, p.is_system,
-       COUNT(c.id) FILTER (WHERE c.status = 'active')::bigint AS open_cases,
-       COUNT(c.id)::bigint AS total_cases
-FROM projects p LEFT JOIN cases c ON c.project_id = p.id
-GROUP BY p.id
+SELECT p.id, p.name, p.is_system, p.type, p.address,
+       (SELECT COUNT(*) FROM cases c WHERE c.project_id = p.id AND c.status = 'active')::bigint AS open_cases,
+       (SELECT COUNT(*) FROM cases c WHERE c.project_id = p.id)::bigint AS total_cases,
+       (SELECT COUNT(*) FROM project_contacts pc WHERE pc.project_id = p.id AND pc.removed_at IS NULL)::bigint AS active_contacts
+FROM projects p
 ORDER BY p.is_system DESC, lower(p.name), p.id
 `
 
 type ListProjectsRow struct {
-	ID         int64
-	Name       string
-	IsSystem   bool
-	OpenCases  int64
-	TotalCases int64
+	ID             int64
+	Name           string
+	IsSystem       bool
+	Type           pgtype.Text
+	Address        string
+	OpenCases      int64
+	TotalCases     int64
+	ActiveContacts int64
 }
 
 func (q *Queries) ListProjects(ctx context.Context) ([]ListProjectsRow, error) {
@@ -290,8 +383,11 @@ func (q *Queries) ListProjects(ctx context.Context) ([]ListProjectsRow, error) {
 			&i.ID,
 			&i.Name,
 			&i.IsSystem,
+			&i.Type,
+			&i.Address,
 			&i.OpenCases,
 			&i.TotalCases,
+			&i.ActiveContacts,
 		); err != nil {
 			return nil, err
 		}
@@ -385,6 +481,31 @@ func (q *Queries) ListStandardStages(ctx context.Context) ([]ListStandardStagesR
 	return items, nil
 }
 
+const lockProject = `-- name: LockProject :one
+SELECT id, name, is_system, type, address FROM projects WHERE id = $1 FOR UPDATE
+`
+
+type LockProjectRow struct {
+	ID       int64
+	Name     string
+	IsSystem bool
+	Type     pgtype.Text
+	Address  string
+}
+
+func (q *Queries) LockProject(ctx context.Context, id int64) (LockProjectRow, error) {
+	row := q.db.QueryRow(ctx, lockProject, id)
+	var i LockProjectRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.IsSystem,
+		&i.Type,
+		&i.Address,
+	)
+	return i, err
+}
+
 const projectExists = `-- name: ProjectExists :one
 SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1)::boolean
 `
@@ -394,6 +515,22 @@ func (q *Queries) ProjectExists(ctx context.Context, id int64) (bool, error) {
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const removeProjectContact = `-- name: RemoveProjectContact :exec
+UPDATE project_contacts SET removed_at = now(), updated_at = now(), updated_by = $3
+WHERE id = $1 AND project_id = $2 AND removed_at IS NULL
+`
+
+type RemoveProjectContactParams struct {
+	ID        int64
+	ProjectID int64
+	UpdatedBy pgtype.Int8
+}
+
+func (q *Queries) RemoveProjectContact(ctx context.Context, arg RemoveProjectContactParams) error {
+	_, err := q.db.Exec(ctx, removeProjectContact, arg.ID, arg.ProjectID, arg.UpdatedBy)
+	return err
 }
 
 const renameBank = `-- name: RenameBank :one
@@ -418,31 +555,6 @@ func (q *Queries) RenameBank(ctx context.Context, arg RenameBankParams) (RenameB
 	row := q.db.QueryRow(ctx, renameBank, arg.ID, arg.Name, arg.UpdatedBy)
 	var i RenameBankRow
 	err := row.Scan(&i.ID, &i.Name, &i.IsActive)
-	return i, err
-}
-
-const renameProject = `-- name: RenameProject :one
-UPDATE projects SET name = $2, updated_at = now(), updated_by = $3
-WHERE id = $1 AND NOT is_system
-RETURNING id, name, is_system
-`
-
-type RenameProjectParams struct {
-	ID        int64
-	Name      string
-	UpdatedBy pgtype.Int8
-}
-
-type RenameProjectRow struct {
-	ID       int64
-	Name     string
-	IsSystem bool
-}
-
-func (q *Queries) RenameProject(ctx context.Context, arg RenameProjectParams) (RenameProjectRow, error) {
-	row := q.db.QueryRow(ctx, renameProject, arg.ID, arg.Name, arg.UpdatedBy)
-	var i RenameProjectRow
-	err := row.Scan(&i.ID, &i.Name, &i.IsSystem)
 	return i, err
 }
 
@@ -479,4 +591,73 @@ func (q *Queries) SetStageRequiresDocument(ctx context.Context, arg SetStageRequ
 		&i.RequiresDocument,
 	)
 	return i, err
+}
+
+const updateProject = `-- name: UpdateProject :one
+UPDATE projects SET name = $2, type = $3, address = $4, updated_at = now(), updated_by = $5
+WHERE id = $1 AND NOT is_system
+RETURNING id, name, is_system, type, address
+`
+
+type UpdateProjectParams struct {
+	ID        int64
+	Name      string
+	Type      pgtype.Text
+	Address   string
+	UpdatedBy pgtype.Int8
+}
+
+type UpdateProjectRow struct {
+	ID       int64
+	Name     string
+	IsSystem bool
+	Type     pgtype.Text
+	Address  string
+}
+
+func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (UpdateProjectRow, error) {
+	row := q.db.QueryRow(ctx, updateProject,
+		arg.ID,
+		arg.Name,
+		arg.Type,
+		arg.Address,
+		arg.UpdatedBy,
+	)
+	var i UpdateProjectRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.IsSystem,
+		&i.Type,
+		&i.Address,
+	)
+	return i, err
+}
+
+const updateProjectContact = `-- name: UpdateProjectContact :exec
+UPDATE project_contacts SET name = $3, phone = $4, email = $5, label = $6, updated_at = now(), updated_by = $7
+WHERE id = $1 AND project_id = $2 AND removed_at IS NULL
+`
+
+type UpdateProjectContactParams struct {
+	ID        int64
+	ProjectID int64
+	Name      string
+	Phone     string
+	Email     pgtype.Text
+	Label     pgtype.Text
+	UpdatedBy pgtype.Int8
+}
+
+func (q *Queries) UpdateProjectContact(ctx context.Context, arg UpdateProjectContactParams) error {
+	_, err := q.db.Exec(ctx, updateProjectContact,
+		arg.ID,
+		arg.ProjectID,
+		arg.Name,
+		arg.Phone,
+		arg.Email,
+		arg.Label,
+		arg.UpdatedBy,
+	)
+	return err
 }

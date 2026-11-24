@@ -136,3 +136,47 @@ describe("LeadDetail", () => {
     expect(await screen.findByText("Its case was deleted.")).toBeInTheDocument();
   });
 });
+
+describe("LeadDetail builder contact", () => {
+  const contact = { id: 21, name: "Ravi", phone: "9876543210", email: "ravi@b.in", label: "Sales office" };
+  const villas = { id: 4, name: "Green Villas", is_system: false, open_cases: 0, total_cases: 0, type: "villas", address: "Road", active_contacts: 2,
+    contacts: [contact, { id: 22, name: "Suresh", phone: "9000000022", email: "", label: "Site office" }] };
+
+  it("shows the contact with a call link", async () => {
+    renderLead({}, lead({ builder_contact_id: 21, builder_contact: { ...contact, removed: false } }));
+    const details = await screen.findByRole("region", { name: "Details" });
+    expect(within(details).getByText(/Sales office · Ravi/)).toBeInTheDocument();
+    expect(within(details).getByRole("link", { name: "9876543210" })).toHaveAttribute("href", "tel:+919876543210");
+    expect(within(details).getByRole("link", { name: "ravi@b.in" })).toHaveAttribute("href", "mailto:ravi@b.in");
+  });
+
+  it("marks a removed contact", async () => {
+    renderLead({}, lead({ builder_contact_id: 21, builder_contact: { ...contact, removed: true } }));
+    const details = await screen.findByRole("region", { name: "Details" });
+    expect(within(details).getByText("(removed)")).toBeInTheDocument();
+  });
+
+  it("has no contact row on NA", async () => {
+    renderLead({}, lead({ project_id: 1, project_name: "NA", builder_contact_id: null, builder_contact: null }));
+    const details = await screen.findByRole("region", { name: "Details" });
+    expect(within(details).queryByText("Builder contact")).toBeNull();
+  });
+
+  it("changes the contact", async () => {
+    const spy = renderLead({
+      "GET /api/config/projects/4": { body: villas },
+      "POST /api/leads/9/builder-contact": { body: { lead: lead(), contacts } },
+    }, lead({ builder_contact_id: 21, builder_contact: { ...contact, removed: false } }));
+    await userEvent.click(await screen.findByRole("button", { name: "Change builder contact" }));
+    const dialog = await screen.findByRole("dialog", { name: "Builder contact" });
+    await userEvent.click(await within(dialog).findByLabelText(/Suresh/));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(bodyOf(spy, "POST /api/leads/9/builder-contact")).toEqual({ contact_id: 22 }));
+  });
+
+  it("dropped lead has no change button", async () => {
+    renderLead({}, lead({ status: "dropped", builder_contact_id: 21, builder_contact: { ...contact, removed: false } }));
+    await screen.findByRole("region", { name: "Details" });
+    expect(screen.queryByRole("button", { name: "Change builder contact" })).toBeNull();
+  });
+});

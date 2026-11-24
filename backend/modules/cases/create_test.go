@@ -15,12 +15,12 @@ import (
 
 // fixture is a migrated database with a bank, a customer, and an employee.
 type fixture struct {
-	svc      *Service
-	pool     *pgxpool.Pool
-	actor    access.User
-	bankID   int64
-	customer int64
-	rec      *recorder
+	svc       *Service
+	pool      *pgxpool.Pool
+	actor     access.User
+	bankID    int64
+	customer  int64
+	rec       *recorder
 	naProject int64
 }
 

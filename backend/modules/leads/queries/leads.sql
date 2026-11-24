@@ -18,12 +18,21 @@ SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1);
 SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND is_active);
 
 -- name: InsertLead :one
-INSERT INTO leads (customer_id, project_id, assignee_id, next_call_date, created_by, updated_by)
-VALUES ($1, $2, $3, $4, $5, $5)
+-- The lead starts with the project's first active builder contact (none for
+-- NA or a project with no contacts yet).
+INSERT INTO leads (customer_id, project_id, assignee_id, next_call_date, created_by, updated_by, builder_contact_id)
+VALUES ($1, $2, $3, $4, $5, $5,
+        (SELECT pc.id FROM project_contacts pc WHERE pc.project_id = $2 AND pc.removed_at IS NULL ORDER BY pc.id LIMIT 1))
 RETURNING id;
 
 -- name: LockLead :one
-SELECT id, customer_id, project_id, status FROM leads WHERE id = $1 FOR UPDATE;
+SELECT id, customer_id, project_id, status, builder_contact_id FROM leads WHERE id = $1 FOR UPDATE;
+
+-- name: ActiveContactInProject :one
+SELECT EXISTS (SELECT 1 FROM project_contacts WHERE id = $1 AND project_id = $2 AND removed_at IS NULL)::boolean;
+
+-- name: SetLeadBuilderContact :exec
+UPDATE leads SET builder_contact_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1;
 
 -- name: SetLeadAssignee :exec
 UPDATE leads SET assignee_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1;
@@ -32,7 +41,9 @@ UPDATE leads SET assignee_id = $2, updated_at = now(), updated_by = $3 WHERE id 
 SELECT l.id, l.customer_id, l.project_id, l.assignee_id, l.status, l.next_call_date, l.created_at, l.converted_at,
        cu.name AS customer_name, cu.mobile AS customer_mobile, COALESCE(cu.email, '')::text AS customer_email,
        p.name AS project_name, u.full_name AS assignee_name,
-       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id
+       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id,
+       l.builder_contact_id, COALESCE(bc.name, '')::text AS bc_name, COALESCE(bc.phone, '')::text AS bc_phone,
+       COALESCE(bc.email, '')::text AS bc_email, COALESCE(bc.label, '')::text AS bc_label, (bc.removed_at IS NOT NULL)::boolean AS bc_removed
 FROM leads l
 JOIN customers cu ON cu.id = l.customer_id
 JOIN projects p ON p.id = l.project_id
@@ -41,6 +52,7 @@ LEFT JOIN LATERAL (
   SELECT lc.response, lc.created_at FROM lead_contacts lc WHERE lc.lead_id = l.id ORDER BY lc.created_at DESC, lc.id DESC LIMIT 1
 ) last ON true
 LEFT JOIN cases c ON c.lead_id = l.id
+LEFT JOIN project_contacts bc ON bc.id = l.builder_contact_id
 WHERE l.id = $1;
 
 -- name: ListOpenLeadRows :many
@@ -48,7 +60,9 @@ WHERE l.id = $1;
 SELECT l.id, l.customer_id, l.project_id, l.assignee_id, l.status, l.next_call_date, l.created_at, l.converted_at,
        cu.name AS customer_name, cu.mobile AS customer_mobile, COALESCE(cu.email, '')::text AS customer_email,
        p.name AS project_name, u.full_name AS assignee_name,
-       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id
+       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id,
+       l.builder_contact_id, COALESCE(bc.name, '')::text AS bc_name, COALESCE(bc.phone, '')::text AS bc_phone,
+       COALESCE(bc.email, '')::text AS bc_email, COALESCE(bc.label, '')::text AS bc_label, (bc.removed_at IS NOT NULL)::boolean AS bc_removed
 FROM leads l
 JOIN customers cu ON cu.id = l.customer_id
 JOIN projects p ON p.id = l.project_id
@@ -57,6 +71,7 @@ LEFT JOIN LATERAL (
   SELECT lc.response, lc.created_at FROM lead_contacts lc WHERE lc.lead_id = l.id ORDER BY lc.created_at DESC, lc.id DESC LIMIT 1
 ) last ON true
 LEFT JOIN cases c ON c.lead_id = l.id
+LEFT JOIN project_contacts bc ON bc.id = l.builder_contact_id
 WHERE l.status = 'open'
 ORDER BY (l.next_call_date IS NOT NULL AND l.next_call_date <= sqlc.arg(today)::date) DESC,
          CASE WHEN l.next_call_date <= sqlc.arg(today)::date THEN l.next_call_date END ASC,
@@ -66,7 +81,9 @@ ORDER BY (l.next_call_date IS NOT NULL AND l.next_call_date <= sqlc.arg(today)::
 SELECT l.id, l.customer_id, l.project_id, l.assignee_id, l.status, l.next_call_date, l.created_at, l.converted_at,
        cu.name AS customer_name, cu.mobile AS customer_mobile, COALESCE(cu.email, '')::text AS customer_email,
        p.name AS project_name, u.full_name AS assignee_name,
-       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id
+       COALESCE(last.response, '')::text AS last_response, last.created_at AS last_contact_at, c.id AS case_id,
+       l.builder_contact_id, COALESCE(bc.name, '')::text AS bc_name, COALESCE(bc.phone, '')::text AS bc_phone,
+       COALESCE(bc.email, '')::text AS bc_email, COALESCE(bc.label, '')::text AS bc_label, (bc.removed_at IS NOT NULL)::boolean AS bc_removed
 FROM leads l
 JOIN customers cu ON cu.id = l.customer_id
 JOIN projects p ON p.id = l.project_id
@@ -75,6 +92,7 @@ LEFT JOIN LATERAL (
   SELECT lc.response, lc.created_at FROM lead_contacts lc WHERE lc.lead_id = l.id ORDER BY lc.created_at DESC, lc.id DESC LIMIT 1
 ) last ON true
 LEFT JOIN cases c ON c.lead_id = l.id
+LEFT JOIN project_contacts bc ON bc.id = l.builder_contact_id
 WHERE l.customer_id = $1
 ORDER BY l.created_at DESC, l.id DESC;
 

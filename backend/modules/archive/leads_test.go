@@ -209,3 +209,33 @@ func TestDeleteCustomerWaitsForLeadBeingAdded(t *testing.T) {
 		t.Fatalf("open leads after refused delete = %d, want 1", n)
 	}
 }
+
+// A deleted case whose builder contact was removed meanwhile comes back still
+// pointing at that contact (contacts are never deleted).
+func TestRestoreCaseKeepsRemovedContact(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	var p, contact int64
+	if err := f.pool.QueryRow(ctx, `INSERT INTO projects (name, type, address) VALUES ('P', 'villas', 'Road') RETURNING id`).Scan(&p); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.pool.QueryRow(ctx, `INSERT INTO project_contacts (project_id, name, phone) VALUES ($1, 'Ravi', '9000000101') RETURNING id`, p).Scan(&contact); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE cases SET project_id = $2, builder_contact_id = $3 WHERE id = $1`, f.caseID, p, contact); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.DeleteCase(ctx, f.manager, f.caseID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE project_contacts SET removed_at = now() WHERE id = $1`, contact); err != nil {
+		t.Fatal(err)
+	}
+	admin := seedUser(t, f.pool, "boss", "admin")
+	if _, err := f.svc.Restore(ctx, admin, archiveID(t, f, "case", f.caseID), reason(t, f, "Customer not interested")); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if n := count(t, f.pool, `SELECT count(*) FROM cases WHERE id = $1 AND builder_contact_id = $2`, f.caseID, contact); n != 1 {
+		t.Fatalf("restored case lost its builder contact")
+	}
+}

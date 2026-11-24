@@ -3,12 +3,14 @@ import { api, ApiError } from "../../api/client";
 import type { Bank, DropReason, Project } from "../../api/types";
 import { Dialog } from "../../components/Dialog";
 import { alertBox, btn, btnPrimary, btnSmall, card, input, label, muted } from "../../components/ui";
+import { projectTypeLabel } from "../../api/projectTypes";
+import { ProjectForm } from "./ProjectForm";
 
 type Editing =
   | { kind: "add-bank" } | { kind: "rename"; bank: Bank } | { kind: "add-reason" }
-  | { kind: "add-project" } | { kind: "rename-project"; project: Project } | null;
+  | { kind: "add-project" } | { kind: "edit-project"; project: Project } | null;
 
-/** Admin Banks & lists tab: banks and projects (add, rename) and drop reasons (add). */
+/** Admin Banks & lists tab: banks (add, rename), projects (add, edit details and contacts) and drop reasons (add). */
 export function BanksAndLists() {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [reasons, setReasons] = useState<DropReason[]>([]);
@@ -53,16 +55,23 @@ export function BanksAndLists() {
           <h2 className="font-semibold">Projects</h2>
           <button type="button" className={btnPrimary} onClick={() => setEditing({ kind: "add-project" })}>+ Add project</button>
         </div>
-        <p className={`${muted} mt-1`}>NA is for loans without a builder project. It cannot be renamed.</p>
+        <p className={`${muted} mt-1`}>NA is for loans without a builder project. It cannot be changed.</p>
         <table className="mt-3 min-w-full text-sm">
           <tbody>
             {projects.map((p) => (
               <tr key={p.id} className="border-t border-slate-100">
                 <td className="px-2 py-2">{p.name}</td>
+                <td className={`px-2 py-2 ${muted}`}>
+                  {p.is_system ? null : p.type === null || p.active_contacts === 0 ? (
+                    <span className="text-amber-700">Add type and contact</span>
+                  ) : (
+                    <>{projectTypeLabel(p.type)} · {p.active_contacts} {p.active_contacts === 1 ? "contact" : "contacts"}</>
+                  )}
+                </td>
                 <td className={`px-2 py-2 ${muted}`}>{p.open_cases} open</td>
                 <td className="px-2 py-2 text-right">
                   {!p.is_system && (
-                    <button type="button" aria-label={`Rename ${p.name}`} className="text-blue-700" onClick={() => setEditing({ kind: "rename-project", project: p })}>Rename</button>
+                    <button type="button" aria-label={`Edit ${p.name}`} className="text-blue-700" onClick={() => setEditing({ kind: "edit-project", project: p })}>Edit</button>
                   )}
                 </td>
               </tr>
@@ -88,14 +97,8 @@ export function BanksAndLists() {
         <OneFieldDialog title={`Rename ${editing.bank.name}`} field="Bank name" initial={editing.bank.name} submitLabel="Save" onClose={() => setEditing(null)}
           onSubmit={(name) => api.request("PUT", `/api/admin/banks/${editing.bank.id}`, { name }).then(done)} />
       )}
-      {editing?.kind === "add-project" && (
-        <OneFieldDialog title="Add a project" field="Project name" initial="" submitLabel="Add" onClose={() => setEditing(null)}
-          onSubmit={(name) => api.request("POST", "/api/admin/projects", { name }).then(done)} />
-      )}
-      {editing?.kind === "rename-project" && (
-        <OneFieldDialog title={`Rename ${editing.project.name}`} field="Project name" initial={editing.project.name} submitLabel="Save" onClose={() => setEditing(null)}
-          onSubmit={(name) => api.request("PUT", `/api/admin/projects/${editing.project.id}`, { name }).then(done)} />
-      )}
+      {editing?.kind === "add-project" && <ProjectForm onClose={() => setEditing(null)} onSaved={done} />}
+      {editing?.kind === "edit-project" && <ProjectForm project={editing.project} onClose={() => setEditing(null)} onSaved={done} />}
       {editing?.kind === "add-reason" && (
         <OneFieldDialog title="Add a drop reason" field="Reason" initial="" submitLabel="Add" onClose={() => setEditing(null)}
           onSubmit={(value) => api.request("POST", "/api/admin/dropdowns", { category: "drop_reason", value, sort_order: 100 }).then(done)} />

@@ -18,12 +18,24 @@ const caseRow = {
   bank_name: "HDFC", project_id: 4, project_name: "Prestige Lakeside Habitat Phase 2", stage_name: "Under sanction", stage_code: "under_sanction", stage_order: 3, stage_count: 6,
   assignee_name: "Priya Sharma", stage_since: "2026-11-12T04:00:00Z", needs_document: true, tracking_number: "HD88213",
   lead_id: 1, unit_number: "TOWER B-1402",
+  builder_contact_id: 21,
+  builder_contact: { id: 21, name: "Venkataramanan Subramanian", phone: "9876543210", email: "venkataramanan.subramanian@prestigeconstructions.example.com", label: "Sales office Habitat", removed: false },
 };
 const leadRow = {
   id: 1, customer_id: 5, customer_name: "Ravi Kumar Venkata Subramanian", customer_mobile: "9848012345", customer_email: "ravi.kumar@example.com",
   project_id: 4, project_name: "Prestige Lakeside Habitat Phase 2", assignee_id: 1, assignee_name: "Priya Sharma", status: "open",
   next_call_date: "2026-11-21", last_response: "call_back", last_contact_at: "2026-11-20T10:00:00Z", call_due: true, overdue_days: 2,
   created_at: "2026-11-19T04:00:00Z", converted_at: null, case_id: null,
+  builder_contact_id: 21, builder_contact: caseRow.builder_contact,
+};
+// Spec 2026-11-24: a project with long details and contacts.
+const projectFull = {
+  id: 4, name: "Prestige Lakeside Habitat Phase 2", is_system: false, open_cases: 8, total_cases: 12, type: "high_rise",
+  address: "Survey No. 112/3A, Varthur Hobli, Whitefield Main Road, Bengaluru East Taluk 560066", active_contacts: 2,
+  contacts: [
+    caseRow.builder_contact,
+    { id: 22, name: "Site Office Reception Desk", phone: "9000000022", email: "", label: "Site office" },
+  ],
 };
 const leadContacts = [
   { id: 1, response: "call_back", remark: "Busy at work all week, asked to call back on Monday evening after 6", next_call_date: "2026-11-21", created_at: "2026-11-20T10:00:00Z", created_by: "Priya Sharma" },
@@ -37,9 +49,11 @@ const api: Record<string, unknown> = {
   "/api/cases/attention": [{ ...caseRow, reason: "No documents at this stage" }],
   "/api/config/banks": [{ id: 1, name: "HDFC" }],
   "/api/config/projects": [
-    { id: 1, name: "NA", is_system: true, open_cases: 5, total_cases: 9 },
-    { id: 4, name: "Prestige Lakeside Habitat Phase 2", is_system: false, open_cases: 8, total_cases: 12 },
+    { id: 1, name: "NA", is_system: true, open_cases: 5, total_cases: 9, type: null, address: "", active_contacts: 0 },
+    { id: 4, name: "Prestige Lakeside Habitat Phase 2", is_system: false, open_cases: 8, total_cases: 12, type: "high_rise", address: projectFull.address, active_contacts: 2 },
   ],
+  "/api/config/projects/4": projectFull,
+  "/api/config/dropdowns/drop_reason": [{ id: 7, value: "Not eligible" }],
   "/api/users": [{ id: 1, full_name: "Priya Sharma", username: "priya" }],
   "/api/reports/dashboard": {
     new_customers_today: 4, new_cases_today: 5, new_customers: 34, new_cases: 41, stage_moves_today: 7,
@@ -98,6 +112,42 @@ test("project box on Home has no horizontal scroll at 360 px", async ({ page }) 
   await page.goto("/");
   await page.getByRole("combobox", { name: "Project" }).click();
   await expect(page.getByRole("option", { name: "Prestige Lakeside Habitat Phase 2" })).toBeVisible();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+// Spec 2026-11-24 §4.4: the admin project form with two long contacts fits a 360 px phone.
+test("admin project form has no horizontal scroll at 360 px", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const adminApi: Record<string, unknown> = { ...api, "/api/me": { id: 9, username: "owner", full_name: "Owner", role: "admin" } };
+  await page.route("**/api/**", (route) => {
+    const body = adminApi[new URL(route.request().url()).pathname];
+    return body === undefined ? route.fulfill({ status: 404, json: { error: "not mocked" } }) : route.fulfill({ json: body });
+  });
+  await page.goto("/admin#banks");
+  await page.getByRole("button", { name: "Edit Prestige Lakeside Habitat Phase 2" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Prestige Lakeside Habitat Phase 2" });
+  await expect(dialog.getByRole("button", { name: "Remove Venkataramanan Subramanian" })).toBeVisible();
+  await dialog.getByRole("button", { name: "+ Add contact" }).click();
+  await expect(dialog.getByLabel("Label (optional)")).toBeVisible();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+// Spec 2026-11-24 §4.3: the lead page shows the builder contact with a call link.
+test("lead page shows the builder contact with a call link at 360 px", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.route("**/api/**", (route) => {
+    const body = api[new URL(route.request().url()).pathname];
+    return body === undefined ? route.fulfill({ status: 404, json: { error: "not mocked" } }) : route.fulfill({ json: body });
+  });
+  await page.goto("/leads/1");
+  const details = page.getByRole("region", { name: "Details" });
+  await expect(details.getByRole("link", { name: "9876543210" })).toHaveAttribute("href", "tel:+919876543210");
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );

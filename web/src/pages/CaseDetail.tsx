@@ -1,3 +1,5 @@
+import { BuilderContactRow } from "../components/BuilderContactRow";
+import { BuilderContactPicker } from "../components/BuilderContactPicker";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, upload } from "../api/client";
@@ -35,6 +37,7 @@ export function CaseDetail() {
   const [dropping, setDropping] = useState(false);
   const [changingUnit, setChangingUnit] = useState(false);
   const [addingCase, setAddingCase] = useState(false);
+  const [pickingContact, setPickingContact] = useState(false);
   const [contacts, setContacts] = useState<LeadContact[]>([]);
 
   async function load() {
@@ -185,6 +188,7 @@ export function CaseDetail() {
                 {row?.project_name ?? "…"}
                 {c.status !== "dropped" && <button type="button" aria-label="Change project" className="ml-2 text-sm font-normal text-blue-700" onClick={() => setChangingProject(true)}>change</button>}
               </dd>
+              <BuilderContactRow contact={c.builder_contact} projectId={c.project_id} onChange={c.status !== "dropped" ? () => setPickingContact(true) : undefined} />
               <dt className="text-slate-500">Unit no.</dt>
               <dd className="font-semibold">
                 {c.unit_number || <span className="font-normal text-slate-500">Not set</span>}
@@ -215,6 +219,8 @@ export function CaseDetail() {
       <MoveStageDialog open={moving !== null} caseData={c} stages={stages} target={moving?.target ?? null} onClose={() => setMoving(null)} onMoved={moved} />
       <UploadDialog open={uploading} caseId={caseId} onClose={() => setUploading(false)} onUploaded={async () => { setUploading(false); setDocs(await api.request<DocumentInfo[]>("GET", `/api/cases/${caseId}/documents`)); }} />
       <ProjectDialog open={changingProject} caseId={caseId} current={c.project_id} onClose={() => setChangingProject(false)} onSaved={async () => { setChangingProject(false); await load(); }} />
+      <BuilderContactPicker open={pickingContact} projectId={c.project_id} current={c.builder_contact_id} onClose={() => setPickingContact(false)}
+        onPick={async (contactId) => { await api.request("POST", `/api/cases/${caseId}/builder-contact`, { contact_id: contactId }); setPickingContact(false); await load(); }} />
       <UnitDialog open={changingUnit} caseId={caseId} current={c.unit_number ?? ""} onClose={() => setChangingUnit(false)} onSaved={async () => { setChangingUnit(false); await load(); }} />
       {customer && (
         <AddCaseDialog open={addingCase} customerId={customer.id} customerName={customer.name} onClose={() => setAddingCase(false)}

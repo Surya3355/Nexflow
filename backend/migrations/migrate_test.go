@@ -12,7 +12,7 @@ import (
 var schemaTables = []string{
 	"users", "sessions", "banks", "stages", "dropdown_values",
 	"customers", "cases", "case_stage_events", "case_assignment_events",
-	"documents", "archive", "audit_log", "alert_log", "projects", "leads", "lead_contacts",
+	"documents", "archive", "audit_log", "alert_log", "projects", "leads", "lead_contacts", "project_contacts",
 }
 
 func tableExists(t *testing.T, pool *pgxpool.Pool, name string) bool {
@@ -270,5 +270,77 @@ func TestMigration5AlertNeedsOneTarget(t *testing.T) {
 		VALUES ($1, (SELECT id FROM projects WHERE name = 'P2'), $2) RETURNING id`, cust, user), &lead2)
 	if _, err := pool.Exec(ctx, ins, nil, lead2, user); err != nil {
 		t.Errorf("second lead alert: %v", err)
+	}
+}
+
+// m6Fixture makes a user, bank, customer and two projects A and B.
+func m6Fixture(t *testing.T, pool *pgxpool.Pool) (user, bank, cust, a, b int64) {
+	t.Helper()
+	ctx := context.Background()
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO users (username, full_name, password_hash, role) VALUES ('u', 'u', 'x', 'admin') RETURNING id`), &user)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO banks (name) VALUES ('HDFC') RETURNING id`), &bank)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO customers (name, mobile) VALUES ('A', '9000000001') RETURNING id`), &cust)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO projects (name, type, address) VALUES ('A', 'villas', 'Road 1') RETURNING id`), &a)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO projects (name, type, address) VALUES ('B', 'plots', 'Road 2') RETURNING id`), &b)
+	return
+}
+
+func TestMigration6ContactFromOtherProjectRefused(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	ctx := context.Background()
+	user, bank, cust, a, b := m6Fixture(t, pool)
+	var onB, onA int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO project_contacts (project_id, name, phone) VALUES ($1, 'Ravi', '9876543210') RETURNING id`, b), &onB)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO project_contacts (project_id, name, phone) VALUES ($1, 'Suresh', '9876543211') RETURNING id`, a), &onA)
+	ins := `INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, project_id, builder_contact_id)
+		VALUES ($1, $2, 100000, (SELECT id FROM stages WHERE code='received' AND bank_id IS NULL), $3, $4, $5)`
+	if _, err := pool.Exec(ctx, ins, cust, bank, user, a, onB); err == nil || !strings.Contains(err.Error(), "23503") {
+		t.Fatalf("case with other project's contact err = %v, want 23503", err)
+	}
+	if _, err := pool.Exec(ctx, ins, cust, bank, user, a, onA); err != nil {
+		t.Fatalf("case with own contact: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO leads (customer_id, project_id, assignee_id, builder_contact_id) VALUES ($1, $2, $3, $4)`, cust, a, user, onB); err == nil || !strings.Contains(err.Error(), "23503") {
+		t.Fatalf("lead with other project's contact err = %v, want 23503", err)
+	}
+}
+
+func TestMigration6ActivePhoneUnique(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	ctx := context.Background()
+	_, _, _, a, b := m6Fixture(t, pool)
+	ins := `INSERT INTO project_contacts (project_id, name, phone) VALUES ($1, 'X', '9876543210') RETURNING id`
+	var first, dummy int64
+	mustScan(t, pool.QueryRow(ctx, ins, a), &first)
+	if err := pool.QueryRow(ctx, ins, a).Scan(&dummy); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("same active phone twice err = %v, want 23505", err)
+	}
+	if err := pool.QueryRow(ctx, ins, b).Scan(&dummy); err != nil {
+		t.Fatalf("same phone on other project: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE project_contacts SET removed_at = now() WHERE id = $1`, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, ins, a).Scan(&dummy); err != nil {
+		t.Fatalf("same phone after removal: %v", err)
+	}
+}
+
+func TestMigration6NAHasNoType(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE projects SET type = 'villas' WHERE is_system`); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Fatalf("NA with type err = %v, want 23514", err)
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO projects (name, type) VALUES ('Q', 'flats')`); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Fatalf("type flats err = %v, want 23514", err)
 	}
 }

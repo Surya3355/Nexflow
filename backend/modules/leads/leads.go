@@ -59,6 +59,9 @@ type Lead struct {
 	CreatedAt    time.Time
 	ConvertedAt  *time.Time
 	CaseID       *int64
+	// BuilderContactID is the project contact staff call about this lead
+	// (nil for NA or a project with no contacts).
+	BuilderContactID *int64
 }
 
 // Row is a lead with the names shown in lists, its last contact, and whether
@@ -74,6 +77,7 @@ type Row struct {
 	LastContactAt  *time.Time
 	CallDue        bool
 	OverdueDays    int
+	BuilderContact *BuilderContact
 }
 
 // Notifier queues the assignment alert for a lead's new assignee, inside the

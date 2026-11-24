@@ -1,3 +1,5 @@
+import { BuilderContactRow } from "../components/BuilderContactRow";
+import { BuilderContactPicker } from "../components/BuilderContactPicker";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -25,6 +27,7 @@ export function LeadDetail() {
   const [adding, setAdding] = useState(false);
   const [newProject, setNewProject] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [pickingContact, setPickingContact] = useState(false);
 
   async function load() {
     const res = await api.request<{ lead: LeadRow; contacts: LeadContact[] }>("GET", `/api/leads/${leadId}`);
@@ -72,10 +75,11 @@ export function LeadDetail() {
 
       {error && <p role="alert" className={alertBox}>{error}</p>}
 
-      <section className={card}>
+      <section aria-label="Details" className={card}>
         <h2 className="mb-2 font-semibold">Details</h2>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-base">
           <dt className="text-slate-500">Project</dt><dd className="font-semibold">{lead.project_name}</dd>
+          <BuilderContactRow contact={lead.builder_contact} projectId={lead.project_id} onChange={open ? () => setPickingContact(true) : undefined} />
           <dt className="text-slate-500">Assigned to</dt>
           <dd className="font-semibold">
             {lead.assignee_name}
@@ -127,12 +131,23 @@ export function LeadDetail() {
           await load();
         }}
       />
+      <BuilderContactPicker
+        open={pickingContact}
+        projectId={lead.project_id}
+        current={lead.builder_contact_id}
+        onClose={() => setPickingContact(false)}
+        onPick={async (contactId) => {
+          await api.request("POST", `/api/leads/${leadId}/builder-contact`, { contact_id: contactId });
+          setPickingContact(false);
+          await load();
+        }}
+      />
       <AddCaseDialog
         open={adding}
         onClose={() => setAdding(false)}
         onSaved={(c) => navigate(`/cases/${c.id}`)}
         customerName={lead.customer_name}
-        fromLead={{ id: lead.id, projectName: lead.project_name, assigneeId: lead.assignee_id }}
+        fromLead={{ id: lead.id, projectId: lead.project_id, projectName: lead.project_name, assigneeId: lead.assignee_id, builderContactId: lead.builder_contact_id }}
       />
       <NewLeadDialog
         open={newProject}

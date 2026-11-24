@@ -11,10 +11,26 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activeContactInProject = `-- name: ActiveContactInProject :one
+SELECT EXISTS (SELECT 1 FROM project_contacts WHERE id = $1 AND project_id = $2 AND removed_at IS NULL)::boolean
+`
+
+type ActiveContactInProjectParams struct {
+	ID        int64
+	ProjectID int64
+}
+
+func (q *Queries) ActiveContactInProject(ctx context.Context, arg ActiveContactInProjectParams) (bool, error) {
+	row := q.db.QueryRow(ctx, activeContactInProject, arg.ID, arg.ProjectID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const attentionCases = `-- name: AttentionCases :many
-SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id, lead_id, unit_number, customer_name, customer_mobile, bank_name, project_name, stage_name, stage_code, stage_order, stage_count, assignee_name, stage_since, needs_document FROM (
+SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id, lead_id, unit_number, builder_contact_id, customer_name, customer_mobile, bank_name, project_name, stage_name, stage_code, stage_order, stage_count, assignee_name, stage_since, needs_document FROM (
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
-       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number,
+       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number, k.builder_contact_id,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
        s.name AS stage_name, s.code AS stage_code,
        (SELECT count(*) FROM stages x
@@ -48,30 +64,31 @@ type AttentionCasesParams struct {
 }
 
 type AttentionCasesRow struct {
-	ID             int64
-	CustomerID     int64
-	BankID         int64
-	LoanAmount     pgtype.Numeric
-	TrackingNumber pgtype.Text
-	CurrentStageID int64
-	AssigneeID     int64
-	Status         string
-	CreatedAt      pgtype.Timestamptz
-	FollowUpDate   pgtype.Date
-	ProjectID      int64
-	LeadID         pgtype.Int8
-	UnitNumber     pgtype.Text
-	CustomerName   string
-	CustomerMobile string
-	BankName       string
-	ProjectName    string
-	StageName      string
-	StageCode      string
-	StageOrder     int32
-	StageCount     int32
-	AssigneeName   string
-	StageSince     pgtype.Timestamptz
-	NeedsDocument  bool
+	ID               int64
+	CustomerID       int64
+	BankID           int64
+	LoanAmount       pgtype.Numeric
+	TrackingNumber   pgtype.Text
+	CurrentStageID   int64
+	AssigneeID       int64
+	Status           string
+	CreatedAt        pgtype.Timestamptz
+	FollowUpDate     pgtype.Date
+	ProjectID        int64
+	LeadID           pgtype.Int8
+	UnitNumber       pgtype.Text
+	BuilderContactID pgtype.Int8
+	CustomerName     string
+	CustomerMobile   string
+	BankName         string
+	ProjectName      string
+	StageName        string
+	StageCode        string
+	StageOrder       int32
+	StageCount       int32
+	AssigneeName     string
+	StageSince       pgtype.Timestamptz
+	NeedsDocument    bool
 }
 
 // Active cases that need attention: the current stage requires a document and
@@ -100,6 +117,7 @@ func (q *Queries) AttentionCases(ctx context.Context, arg AttentionCasesParams) 
 			&i.ProjectID,
 			&i.LeadID,
 			&i.UnitNumber,
+			&i.BuilderContactID,
 			&i.CustomerName,
 			&i.CustomerMobile,
 			&i.BankName,
@@ -178,24 +196,25 @@ func (q *Queries) CaseStageHistory(ctx context.Context, caseID int64) ([]CaseSta
 
 const casesForCustomer = `-- name: CasesForCustomer :many
 SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
-       lead_id, unit_number
+       lead_id, unit_number, builder_contact_id
 FROM cases WHERE customer_id = $1 ORDER BY created_at, id
 `
 
 type CasesForCustomerRow struct {
-	ID             int64
-	CustomerID     int64
-	BankID         int64
-	LoanAmount     pgtype.Numeric
-	TrackingNumber pgtype.Text
-	CurrentStageID int64
-	AssigneeID     int64
-	Status         string
-	CreatedAt      pgtype.Timestamptz
-	FollowUpDate   pgtype.Date
-	ProjectID      int64
-	LeadID         pgtype.Int8
-	UnitNumber     pgtype.Text
+	ID               int64
+	CustomerID       int64
+	BankID           int64
+	LoanAmount       pgtype.Numeric
+	TrackingNumber   pgtype.Text
+	CurrentStageID   int64
+	AssigneeID       int64
+	Status           string
+	CreatedAt        pgtype.Timestamptz
+	FollowUpDate     pgtype.Date
+	ProjectID        int64
+	LeadID           pgtype.Int8
+	UnitNumber       pgtype.Text
+	BuilderContactID pgtype.Int8
 }
 
 func (q *Queries) CasesForCustomer(ctx context.Context, customerID int64) ([]CasesForCustomerRow, error) {
@@ -221,6 +240,7 @@ func (q *Queries) CasesForCustomer(ctx context.Context, customerID int64) ([]Cas
 			&i.ProjectID,
 			&i.LeadID,
 			&i.UnitNumber,
+			&i.BuilderContactID,
 		); err != nil {
 			return nil, err
 		}
@@ -290,26 +310,55 @@ func (q *Queries) DropCase(ctx context.Context, arg DropCaseParams) error {
 	return err
 }
 
+const getBuilderContact = `-- name: GetBuilderContact :one
+SELECT id, name, phone, COALESCE(email, '')::text AS email, COALESCE(label, '')::text AS label, (removed_at IS NOT NULL)::boolean AS removed
+FROM project_contacts WHERE id = $1
+`
+
+type GetBuilderContactRow struct {
+	ID      int64
+	Name    string
+	Phone   string
+	Email   string
+	Label   string
+	Removed bool
+}
+
+func (q *Queries) GetBuilderContact(ctx context.Context, id int64) (GetBuilderContactRow, error) {
+	row := q.db.QueryRow(ctx, getBuilderContact, id)
+	var i GetBuilderContactRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Phone,
+		&i.Email,
+		&i.Label,
+		&i.Removed,
+	)
+	return i, err
+}
+
 const getCase = `-- name: GetCase :one
 SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
-       lead_id, unit_number
+       lead_id, unit_number, builder_contact_id
 FROM cases WHERE id = $1
 `
 
 type GetCaseRow struct {
-	ID             int64
-	CustomerID     int64
-	BankID         int64
-	LoanAmount     pgtype.Numeric
-	TrackingNumber pgtype.Text
-	CurrentStageID int64
-	AssigneeID     int64
-	Status         string
-	CreatedAt      pgtype.Timestamptz
-	FollowUpDate   pgtype.Date
-	ProjectID      int64
-	LeadID         pgtype.Int8
-	UnitNumber     pgtype.Text
+	ID               int64
+	CustomerID       int64
+	BankID           int64
+	LoanAmount       pgtype.Numeric
+	TrackingNumber   pgtype.Text
+	CurrentStageID   int64
+	AssigneeID       int64
+	Status           string
+	CreatedAt        pgtype.Timestamptz
+	FollowUpDate     pgtype.Date
+	ProjectID        int64
+	LeadID           pgtype.Int8
+	UnitNumber       pgtype.Text
+	BuilderContactID pgtype.Int8
 }
 
 func (q *Queries) GetCase(ctx context.Context, id int64) (GetCaseRow, error) {
@@ -329,6 +378,7 @@ func (q *Queries) GetCase(ctx context.Context, id int64) (GetCaseRow, error) {
 		&i.ProjectID,
 		&i.LeadID,
 		&i.UnitNumber,
+		&i.BuilderContactID,
 	)
 	return i, err
 }
@@ -362,22 +412,23 @@ func (q *Queries) GetUserActive(ctx context.Context, id int64) (bool, error) {
 
 const insertCase = `-- name: InsertCase :one
 INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, created_by, updated_by, project_id,
-                   tracking_number, lead_id, unit_number)
-VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10)
+                   tracking_number, lead_id, unit_number, builder_contact_id)
+VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11)
 RETURNING id
 `
 
 type InsertCaseParams struct {
-	CustomerID     int64
-	BankID         int64
-	LoanAmount     pgtype.Numeric
-	CurrentStageID int64
-	AssigneeID     int64
-	CreatedBy      pgtype.Int8
-	ProjectID      int64
-	TrackingNumber pgtype.Text
-	LeadID         pgtype.Int8
-	UnitNumber     pgtype.Text
+	CustomerID       int64
+	BankID           int64
+	LoanAmount       pgtype.Numeric
+	CurrentStageID   int64
+	AssigneeID       int64
+	CreatedBy        pgtype.Int8
+	ProjectID        int64
+	TrackingNumber   pgtype.Text
+	LeadID           pgtype.Int8
+	UnitNumber       pgtype.Text
+	BuilderContactID pgtype.Int8
 }
 
 func (q *Queries) InsertCase(ctx context.Context, arg InsertCaseParams) (int64, error) {
@@ -392,6 +443,7 @@ func (q *Queries) InsertCase(ctx context.Context, arg InsertCaseParams) (int64, 
 		arg.TrackingNumber,
 		arg.LeadID,
 		arg.UnitNumber,
+		arg.BuilderContactID,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -492,7 +544,7 @@ func (q *Queries) InsertCaseStageEventAt(ctx context.Context, arg InsertCaseStag
 
 const listCaseRows = `-- name: ListCaseRows :many
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
-       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number,
+       k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number, k.builder_contact_id,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
        s.name AS stage_name, s.code AS stage_code,
        (SELECT count(*) FROM stages x
@@ -533,30 +585,31 @@ type ListCaseRowsParams struct {
 }
 
 type ListCaseRowsRow struct {
-	ID             int64
-	CustomerID     int64
-	BankID         int64
-	LoanAmount     pgtype.Numeric
-	TrackingNumber pgtype.Text
-	CurrentStageID int64
-	AssigneeID     int64
-	Status         string
-	CreatedAt      pgtype.Timestamptz
-	FollowUpDate   pgtype.Date
-	ProjectID      int64
-	LeadID         pgtype.Int8
-	UnitNumber     pgtype.Text
-	CustomerName   string
-	CustomerMobile string
-	BankName       string
-	ProjectName    string
-	StageName      string
-	StageCode      string
-	StageOrder     int32
-	StageCount     int32
-	AssigneeName   string
-	StageSince     pgtype.Timestamptz
-	NeedsDocument  bool
+	ID               int64
+	CustomerID       int64
+	BankID           int64
+	LoanAmount       pgtype.Numeric
+	TrackingNumber   pgtype.Text
+	CurrentStageID   int64
+	AssigneeID       int64
+	Status           string
+	CreatedAt        pgtype.Timestamptz
+	FollowUpDate     pgtype.Date
+	ProjectID        int64
+	LeadID           pgtype.Int8
+	UnitNumber       pgtype.Text
+	BuilderContactID pgtype.Int8
+	CustomerName     string
+	CustomerMobile   string
+	BankName         string
+	ProjectName      string
+	StageName        string
+	StageCode        string
+	StageOrder       int32
+	StageCount       int32
+	AssigneeName     string
+	StageSince       pgtype.Timestamptz
+	NeedsDocument    bool
 }
 
 // ListCases plus the names and stage progress the case list shows.
@@ -592,6 +645,7 @@ func (q *Queries) ListCaseRows(ctx context.Context, arg ListCaseRowsParams) ([]L
 			&i.ProjectID,
 			&i.LeadID,
 			&i.UnitNumber,
+			&i.BuilderContactID,
 			&i.CustomerName,
 			&i.CustomerMobile,
 			&i.BankName,
@@ -616,7 +670,7 @@ func (q *Queries) ListCaseRows(ctx context.Context, arg ListCaseRowsParams) ([]L
 
 const listCases = `-- name: ListCases :many
 SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id,
-       lead_id, unit_number
+       lead_id, unit_number, builder_contact_id
 FROM cases
 WHERE ($1::bigint IS NULL OR current_stage_id = $1::bigint)
   AND ($2::bigint IS NULL OR bank_id = $2::bigint)
@@ -637,19 +691,20 @@ type ListCasesParams struct {
 }
 
 type ListCasesRow struct {
-	ID             int64
-	CustomerID     int64
-	BankID         int64
-	LoanAmount     pgtype.Numeric
-	TrackingNumber pgtype.Text
-	CurrentStageID int64
-	AssigneeID     int64
-	Status         string
-	CreatedAt      pgtype.Timestamptz
-	FollowUpDate   pgtype.Date
-	ProjectID      int64
-	LeadID         pgtype.Int8
-	UnitNumber     pgtype.Text
+	ID               int64
+	CustomerID       int64
+	BankID           int64
+	LoanAmount       pgtype.Numeric
+	TrackingNumber   pgtype.Text
+	CurrentStageID   int64
+	AssigneeID       int64
+	Status           string
+	CreatedAt        pgtype.Timestamptz
+	FollowUpDate     pgtype.Date
+	ProjectID        int64
+	LeadID           pgtype.Int8
+	UnitNumber       pgtype.Text
+	BuilderContactID pgtype.Int8
 }
 
 // Each filter is optional (NULL means no filter). Filters combine with AND.
@@ -684,6 +739,7 @@ func (q *Queries) ListCases(ctx context.Context, arg ListCasesParams) ([]ListCas
 			&i.ProjectID,
 			&i.LeadID,
 			&i.UnitNumber,
+			&i.BuilderContactID,
 		); err != nil {
 			return nil, err
 		}
@@ -696,19 +752,20 @@ func (q *Queries) ListCases(ctx context.Context, arg ListCasesParams) ([]ListCas
 }
 
 const lockCase = `-- name: LockCase :one
-SELECT id, customer_id, bank_id, current_stage_id, status, tracking_number, assignee_id, project_id
+SELECT id, customer_id, bank_id, current_stage_id, status, tracking_number, assignee_id, project_id, builder_contact_id
 FROM cases WHERE id = $1 FOR UPDATE
 `
 
 type LockCaseRow struct {
-	ID             int64
-	CustomerID     int64
-	BankID         int64
-	CurrentStageID int64
-	Status         string
-	TrackingNumber pgtype.Text
-	AssigneeID     int64
-	ProjectID      int64
+	ID               int64
+	CustomerID       int64
+	BankID           int64
+	CurrentStageID   int64
+	Status           string
+	TrackingNumber   pgtype.Text
+	AssigneeID       int64
+	ProjectID        int64
+	BuilderContactID pgtype.Int8
 }
 
 func (q *Queries) LockCase(ctx context.Context, id int64) (LockCaseRow, error) {
@@ -723,6 +780,7 @@ func (q *Queries) LockCase(ctx context.Context, id int64) (LockCaseRow, error) {
 		&i.TrackingNumber,
 		&i.AssigneeID,
 		&i.ProjectID,
+		&i.BuilderContactID,
 	)
 	return i, err
 }
@@ -774,6 +832,17 @@ type MarkLeadConvertedParams struct {
 func (q *Queries) MarkLeadConverted(ctx context.Context, arg MarkLeadConvertedParams) error {
 	_, err := q.db.Exec(ctx, markLeadConverted, arg.ID, arg.UpdatedBy)
 	return err
+}
+
+const projectHasActiveContact = `-- name: ProjectHasActiveContact :one
+SELECT EXISTS (SELECT 1 FROM project_contacts WHERE project_id = $1 AND removed_at IS NULL)::boolean
+`
+
+func (q *Queries) ProjectHasActiveContact(ctx context.Context, projectID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, projectHasActiveContact, projectID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const searchCustomerIDs = `-- name: SearchCustomerIDs :many
@@ -833,6 +902,21 @@ type SetCaseAssigneeParams struct {
 
 func (q *Queries) SetCaseAssignee(ctx context.Context, arg SetCaseAssigneeParams) error {
 	_, err := q.db.Exec(ctx, setCaseAssignee, arg.ID, arg.AssigneeID, arg.UpdatedBy)
+	return err
+}
+
+const setCaseBuilderContact = `-- name: SetCaseBuilderContact :exec
+UPDATE cases SET builder_contact_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1
+`
+
+type SetCaseBuilderContactParams struct {
+	ID               int64
+	BuilderContactID pgtype.Int8
+	UpdatedBy        pgtype.Int8
+}
+
+func (q *Queries) SetCaseBuilderContact(ctx context.Context, arg SetCaseBuilderContactParams) error {
+	_, err := q.db.Exec(ctx, setCaseBuilderContact, arg.ID, arg.BuilderContactID, arg.UpdatedBy)
 	return err
 }
 
@@ -969,17 +1053,25 @@ func (q *Queries) UpdateCaseFields(ctx context.Context, arg UpdateCaseFieldsPara
 	return err
 }
 
-const updateCaseProject = `-- name: UpdateCaseProject :exec
-UPDATE cases SET project_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1
+const updateCaseProject = `-- name: UpdateCaseProject :one
+UPDATE cases AS k SET project_id = $1::bigint, updated_at = now(), updated_by = $2,
+       builder_contact_id = (SELECT pc.id FROM project_contacts pc
+                             WHERE pc.project_id = $1::bigint AND pc.removed_at IS NULL ORDER BY pc.id LIMIT 1)
+WHERE k.id = $3
+RETURNING k.builder_contact_id
 `
 
 type UpdateCaseProjectParams struct {
-	ID        int64
 	ProjectID int64
 	UpdatedBy pgtype.Int8
+	ID        int64
 }
 
-func (q *Queries) UpdateCaseProject(ctx context.Context, arg UpdateCaseProjectParams) error {
-	_, err := q.db.Exec(ctx, updateCaseProject, arg.ID, arg.ProjectID, arg.UpdatedBy)
-	return err
+// The case takes the new project's first active builder contact (none for NA
+// or a project with no contacts yet).
+func (q *Queries) UpdateCaseProject(ctx context.Context, arg UpdateCaseProjectParams) (pgtype.Int8, error) {
+	row := q.db.QueryRow(ctx, updateCaseProject, arg.ProjectID, arg.UpdatedBy, arg.ID)
+	var builder_contact_id pgtype.Int8
+	err := row.Scan(&builder_contact_id)
+	return builder_contact_id, err
 }

@@ -110,5 +110,13 @@ func (s *Service) load(ctx context.Context, caseID int64) (Case, error) {
 	if err != nil {
 		return Case{}, fmt.Errorf("cases: load: %w", err)
 	}
-	return toCase(row), nil
+	c := toCase(row)
+	if c.BuilderContactID != nil {
+		bc, err := s.q.GetBuilderContact(ctx, *c.BuilderContactID)
+		if err != nil {
+			return Case{}, fmt.Errorf("cases: load contact: %w", err)
+		}
+		c.BuilderContact = &BuilderContact{ID: bc.ID, Name: bc.Name, Phone: bc.Phone, Email: bc.Email, Label: bc.Label, Removed: bc.Removed}
+	}
+	return c, nil
 }

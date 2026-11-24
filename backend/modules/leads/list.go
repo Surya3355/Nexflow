@@ -80,5 +80,10 @@ func toRow(r leadsdb.GetLeadRowRow, today time.Time) Row {
 		id := r.CaseID.Int64
 		row.CaseID = &id
 	}
+	if r.BuilderContactID.Valid {
+		id := r.BuilderContactID.Int64
+		row.BuilderContactID = &id
+		row.BuilderContact = &BuilderContact{ID: id, Name: r.BcName, Phone: r.BcPhone, Email: r.BcEmail, Label: r.BcLabel, Removed: r.BcRemoved}
+	}
 	return row
 }
