@@ -48,7 +48,7 @@ func (q *Queries) GetProject(ctx context.Context, id int64) (GetProjectRow, erro
 }
 
 const getStage = `-- name: GetStage :one
-SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role FROM stages WHERE id = $1
+SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role, COALESCE(officer_team, '')::text AS officer_team FROM stages WHERE id = $1
 `
 
 type GetStageRow struct {
@@ -59,6 +59,7 @@ type GetStageRow struct {
 	SortOrder        int32
 	RequiresDocument bool
 	Role             string
+	OfficerTeam      string
 }
 
 func (q *Queries) GetStage(ctx context.Context, id int64) (GetStageRow, error) {
@@ -72,6 +73,7 @@ func (q *Queries) GetStage(ctx context.Context, id int64) (GetStageRow, error) {
 		&i.SortOrder,
 		&i.RequiresDocument,
 		&i.Role,
+		&i.OfficerTeam,
 	)
 	return i, err
 }
@@ -107,18 +109,19 @@ func (q *Queries) InsertBank(ctx context.Context, arg InsertBankParams) (InsertB
 }
 
 const insertBankStage = `-- name: InsertBankStage :one
-INSERT INTO stages (bank_id, code, name, sort_order, role, created_by, updated_by)
-VALUES ($1, $2, $3, $4, $6, $5, $5)
+INSERT INTO stages (bank_id, code, name, sort_order, role, officer_team, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $6, $7, $5, $5)
 RETURNING id
 `
 
 type InsertBankStageParams struct {
-	BankID    pgtype.Int8
-	Code      string
-	Name      string
-	SortOrder int32
-	CreatedBy pgtype.Int8
-	Role      pgtype.Text
+	BankID      pgtype.Int8
+	Code        string
+	Name        string
+	SortOrder   int32
+	CreatedBy   pgtype.Int8
+	Role        pgtype.Text
+	OfficerTeam pgtype.Text
 }
 
 func (q *Queries) InsertBankStage(ctx context.Context, arg InsertBankStageParams) (int64, error) {
@@ -129,6 +132,7 @@ func (q *Queries) InsertBankStage(ctx context.Context, arg InsertBankStageParams
 		arg.SortOrder,
 		arg.CreatedBy,
 		arg.Role,
+		arg.OfficerTeam,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -240,7 +244,7 @@ func (q *Queries) InsertProjectContact(ctx context.Context, arg InsertProjectCon
 const insertStage = `-- name: InsertStage :one
 INSERT INTO stages (bank_id, code, name, sort_order, requires_document, created_by, updated_by)
 VALUES ($1, $2, $3, $4, $5, $6, $6)
-RETURNING id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role
+RETURNING id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role, COALESCE(officer_team, '')::text AS officer_team
 `
 
 type InsertStageParams struct {
@@ -260,6 +264,7 @@ type InsertStageRow struct {
 	SortOrder        int32
 	RequiresDocument bool
 	Role             string
+	OfficerTeam      string
 }
 
 func (q *Queries) InsertStage(ctx context.Context, arg InsertStageParams) (InsertStageRow, error) {
@@ -280,6 +285,7 @@ func (q *Queries) InsertStage(ctx context.Context, arg InsertStageParams) (Inser
 		&i.SortOrder,
 		&i.RequiresDocument,
 		&i.Role,
+		&i.OfficerTeam,
 	)
 	return i, err
 }
@@ -483,7 +489,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]ListProjectsRow, error) {
 }
 
 const listStagesForBank = `-- name: ListStagesForBank :many
-SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role
+SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role, COALESCE(officer_team, '')::text AS officer_team
 FROM stages WHERE bank_id = $1 AND is_active ORDER BY sort_order
 `
 
@@ -495,6 +501,7 @@ type ListStagesForBankRow struct {
 	SortOrder        int32
 	RequiresDocument bool
 	Role             string
+	OfficerTeam      string
 }
 
 func (q *Queries) ListStagesForBank(ctx context.Context, bankID pgtype.Int8) ([]ListStagesForBankRow, error) {
@@ -514,6 +521,7 @@ func (q *Queries) ListStagesForBank(ctx context.Context, bankID pgtype.Int8) ([]
 			&i.SortOrder,
 			&i.RequiresDocument,
 			&i.Role,
+			&i.OfficerTeam,
 		); err != nil {
 			return nil, err
 		}
@@ -526,7 +534,7 @@ func (q *Queries) ListStagesForBank(ctx context.Context, bankID pgtype.Int8) ([]
 }
 
 const listStandardStages = `-- name: ListStandardStages :many
-SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role
+SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role, COALESCE(officer_team, '')::text AS officer_team
 FROM stages WHERE bank_id IS NULL AND is_active ORDER BY sort_order
 `
 
@@ -538,6 +546,7 @@ type ListStandardStagesRow struct {
 	SortOrder        int32
 	RequiresDocument bool
 	Role             string
+	OfficerTeam      string
 }
 
 func (q *Queries) ListStandardStages(ctx context.Context) ([]ListStandardStagesRow, error) {
@@ -557,6 +566,7 @@ func (q *Queries) ListStandardStages(ctx context.Context) ([]ListStandardStagesR
 			&i.SortOrder,
 			&i.RequiresDocument,
 			&i.Role,
+			&i.OfficerTeam,
 		); err != nil {
 			return nil, err
 		}
@@ -713,7 +723,7 @@ func (q *Queries) SetBankPartPayments(ctx context.Context, arg SetBankPartPaymen
 const setStageRequiresDocument = `-- name: SetStageRequiresDocument :one
 UPDATE stages SET requires_document = $2, updated_at = now(), updated_by = $3
 WHERE id = $1
-RETURNING id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role
+RETURNING id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role, COALESCE(officer_team, '')::text AS officer_team
 `
 
 type SetStageRequiresDocumentParams struct {
@@ -730,6 +740,7 @@ type SetStageRequiresDocumentRow struct {
 	SortOrder        int32
 	RequiresDocument bool
 	Role             string
+	OfficerTeam      string
 }
 
 func (q *Queries) SetStageRequiresDocument(ctx context.Context, arg SetStageRequiresDocumentParams) (SetStageRequiresDocumentRow, error) {
@@ -743,6 +754,7 @@ func (q *Queries) SetStageRequiresDocument(ctx context.Context, arg SetStageRequ
 		&i.SortOrder,
 		&i.RequiresDocument,
 		&i.Role,
+		&i.OfficerTeam,
 	)
 	return i, err
 }

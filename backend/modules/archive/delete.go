@@ -23,7 +23,7 @@ var (
 	ErrCustomerHasCases = errors.New("archive: customer still has live cases; archive them first")
 	// ErrCustomerHasOpenLeads: dropping the customer drops their open leads.
 	ErrCustomerHasOpenLeads = errors.New("archive: this customer has open leads. Drop the customer first")
-	ErrNotFound         = errors.New("archive: record not found")
+	ErrNotFound             = errors.New("archive: record not found")
 )
 
 // Service runs hard delete and restore.
@@ -94,6 +94,9 @@ func (s *Service) DeleteCase(ctx context.Context, actor access.User, caseID int6
 	}
 	if err := q.DeleteCaseDocuments(txCtx, caseID); err != nil {
 		return fmt.Errorf("archive: documents: %w", err)
+	}
+	if err := q.DeleteCaseOfficers(txCtx, caseID); err != nil {
+		return fmt.Errorf("archive: officers: %w", err)
 	}
 	if err := q.DeleteCasePayments(txCtx, caseID); err != nil {
 		return fmt.Errorf("archive: payments: %w", err)

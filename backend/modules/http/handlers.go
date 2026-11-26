@@ -75,6 +75,7 @@ func stageList(stages []workflows.Stage) []map[string]any {
 		out = append(out, map[string]any{
 			"id": s.ID, "code": s.Code, "name": s.Name, "sort_order": s.SortOrder,
 			"requires_document": s.RequiresDocument, "role": s.Role,
+			"officer_team": s.OfficerTeam, "officer_team_name": teamName(s.OfficerTeam),
 		})
 	}
 	return out
@@ -502,16 +503,17 @@ func (h *handlers) setCaseBuilderContact(w http.ResponseWriter, r *http.Request)
 
 func (h *handlers) createCase(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		CustomerID     int64  `json:"customer_id"`
-		BankID         int64  `json:"bank_id"`
-		ProjectID      int64  `json:"project_id"`
-		LoanAmount     string `json:"loan_amount"`
-		AssigneeID     int64  `json:"assignee_id"`
-		BringBack      bool   `json:"bring_back"`
-		UnitNumber     string `json:"unit_number"`
-		StartAt        string `json:"start_at"`
-		TrackingNumber string `json:"tracking_number"`
-		BuilderContact int64  `json:"builder_contact_id"`
+		CustomerID     int64            `json:"customer_id"`
+		BankID         int64            `json:"bank_id"`
+		ProjectID      int64            `json:"project_id"`
+		LoanAmount     string           `json:"loan_amount"`
+		AssigneeID     int64            `json:"assignee_id"`
+		BringBack      bool             `json:"bring_back"`
+		UnitNumber     string           `json:"unit_number"`
+		StartAt        string           `json:"start_at"`
+		TrackingNumber string           `json:"tracking_number"`
+		BuilderContact int64            `json:"builder_contact_id"`
+		Officers       map[string]int64 `json:"officers"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -519,7 +521,7 @@ func (h *handlers) createCase(w http.ResponseWriter, r *http.Request) {
 	c, err := h.d.Cases.Create(r.Context(), actor(r), cases.NewCase{
 		CustomerID: in.CustomerID, BankID: in.BankID, ProjectID: in.ProjectID, LoanAmount: in.LoanAmount, AssigneeID: in.AssigneeID,
 		BringBack: in.BringBack, UnitNumber: in.UnitNumber, StartAt: in.StartAt, TrackingNumber: in.TrackingNumber,
-		BuilderContactID: in.BuilderContact,
+		BuilderContactID: in.BuilderContact, Officers: in.Officers,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -783,11 +785,12 @@ func (h *handlers) changeStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		StageID        int64           `json:"stage_id"`
-		TrackingNumber *string         `json:"tracking_number"`
-		Sanction       *sanctionIn     `json:"sanction"`
-		Payment        *paymentIn      `json:"payment"`
-		Remark         string          `json:"remark"`
+		StageID        int64       `json:"stage_id"`
+		TrackingNumber *string     `json:"tracking_number"`
+		Sanction       *sanctionIn `json:"sanction"`
+		Payment        *paymentIn  `json:"payment"`
+		Remark         string      `json:"remark"`
+		OfficerID      int64       `json:"officer_id"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -806,7 +809,7 @@ func (h *handlers) changeStage(w http.ResponseWriter, r *http.Request) {
 		}
 		sanction = &sd
 	}
-	m := cases.StageMove{ToStageID: in.StageID, TrackingNumber: in.TrackingNumber, Sanction: sanction, Remark: in.Remark}
+	m := cases.StageMove{ToStageID: in.StageID, TrackingNumber: in.TrackingNumber, Sanction: sanction, Remark: in.Remark, OfficerID: in.OfficerID}
 	if in.Payment != nil {
 		p, ok := toPayment(w, *in.Payment)
 		if !ok {

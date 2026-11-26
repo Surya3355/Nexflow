@@ -56,6 +56,7 @@ type StageMove struct {
 	Sanction       *SanctionDetails // needed to reach the sanction-role stage
 	Payment        *PaymentInput    // first payment, when reaching the disbursement-role stage
 	Remark         string           // optional
+	OfficerID      int64            // officer for the target stage's team; 0 keeps the current one
 }
 
 // ChangeStage moves a case to another stage of its bank. Any stage can be
@@ -108,6 +109,9 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID int
 	}
 	if to == nil {
 		return Case{}, ErrStageNotForBank
+	}
+	if m.OfficerID != 0 && to.OfficerTeam == "" {
+		return Case{}, ErrOfficerInvalid
 	}
 
 	var newTracking pgtype.Text
@@ -182,6 +186,11 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID int
 		Remark: pgtype.Text{String: remark, Valid: remark != ""},
 	}); err != nil {
 		return Case{}, fmt.Errorf("cases: stage event: %w", err)
+	}
+	if m.OfficerID != 0 {
+		if err := s.pickOfficerTx(txCtx, q, actor, caseID, locked.BankID, to.OfficerTeam, m.OfficerID, now); err != nil {
+			return Case{}, err
+		}
 	}
 	if err := s.syncPurgeDate(txCtx, q, caseID, locked.Status, status, now); err != nil {
 		return Case{}, err

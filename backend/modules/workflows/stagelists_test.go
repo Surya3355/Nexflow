@@ -193,3 +193,37 @@ func TestStandardStagesCarryRoles(t *testing.T) {
 		t.Fatalf("tracking stage = %+v %v", s, ok)
 	}
 }
+
+func TestHDFCStageListHasTeams(t *testing.T) {
+	svc, pool := setup(t)
+	admin := actor(t, pool, "root", access.RoleAdmin)
+	ctx := context.Background()
+	b, _ := svc.CreateBank(ctx, admin, "HDFC")
+	if err := svc.SetBankStageList(ctx, admin, b.ID, StageListHDFC); err != nil {
+		t.Fatal(err)
+	}
+	stages, _ := svc.StagesFor(ctx, b.ID)
+	want := map[string]string{"link_sent": TeamTDEP, "dovr": TeamDOVR, "appraisal": TeamAppraisal, "under_fixing": TeamFixing}
+	for _, st := range stages {
+		if st.OfficerTeam != want[st.Code] {
+			t.Errorf("team of %s = %q, want %q", st.Code, st.OfficerTeam, want[st.Code])
+		}
+	}
+}
+
+func TestStandardStagesHaveOfficerTeam(t *testing.T) {
+	svc, _ := setup(t)
+	std, _ := svc.StandardStages(context.Background())
+	for _, st := range std {
+		want := ""
+		if st.Code == "received" {
+			want = TeamOfficer
+		}
+		if st.OfficerTeam != want {
+			t.Errorf("team of %s = %q, want %q", st.Code, st.OfficerTeam, want)
+		}
+	}
+	if TeamName(TeamTDEP) != "TDEP" || TeamName(TeamAppraisal) != "Appraisal" || TeamName(TeamOfficer) != "Officer" {
+		t.Fatal("team names")
+	}
+}

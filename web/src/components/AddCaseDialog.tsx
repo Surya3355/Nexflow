@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
-import type { Bank, BuilderContact, Case, Project, ProjectType, StaffUser } from "../api/types";
+import type { Bank, BuilderContact, Case, Project, ProjectType, StaffUser, Stage } from "../api/types";
 import { unitLabel, unitPlaceholder } from "../api/projectTypes";
 import { Dialog } from "./Dialog";
+import { OfficerSelect } from "./OfficerSelect";
 import { ProjectPicker } from "./ProjectPicker";
 import { alertBox, btn, btnPrimary, input, label, muted } from "./ui";
 
@@ -38,10 +39,26 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
   const [contacts, setContacts] = useState<BuilderContact[]>([]);
   const [contactId, setContactId] = useState("");
   const [fetchedType, setFetchedType] = useState<ProjectType | null>(null);
+  const [bankStages, setBankStages] = useState<Stage[]>([]);
+  const [picked, setPicked] = useState<Record<string, number | null>>({});
   const sending = useRef(false);
   // Banks on their own stage list (HDFC) always start at their start stage (spec 2026-11-25 §5.5).
   const ownList = banks.find((b) => String(b.id) === bankId)?.stage_list === "hdfc";
   const start = ownList ? "" : startAt;
+
+  // The bank's stages, for the officer teams the new case passes through (spec 2026-11-26 §5.3).
+  useEffect(() => {
+    setBankStages([]);
+    setPicked({});
+    if (!open || !bankId) return;
+    let live = true;
+    api.request<Stage[]>("GET", `/api/config/banks/${bankId}/stages`)
+      .then((st) => live && setBankStages(st))
+      .catch(() => live && setBankStages([]));
+    return () => { live = false; };
+  }, [open, bankId]);
+  const landing = bankStages.find((s) => s.role === (start === "logged_in" ? "tracking" : "start"));
+  const teams = landing ? bankStages.filter((s) => s.officer_team && s.sort_order <= landing.sort_order) : [];
 
   // The project's current contacts, prefilled with the lead's contact while it
   // is still on the list, else the first one (spec 2026-11-24 §4.3).
@@ -111,6 +128,11 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
       unit_number: unit.trim(), start_at: start, tracking_number: start === "logged_in" ? tracking.trim() : "",
       ...(contacts.length > 0 && contactId ? { builder_contact_id: Number(contactId) } : {}),
     };
+    const chosen = Object.fromEntries(teams.flatMap((s) => {
+      const v = picked[s.officer_team ?? ""];
+      return v ? [[s.officer_team, v]] : [];
+    }));
+    if (Object.keys(chosen).length > 0) Object.assign(body, { officers: chosen });
     sending.current = true;
     setBusy(true);
     try {
@@ -170,6 +192,10 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
             <input className={input} value={tracking} onChange={(e) => setTracking(e.target.value.toUpperCase())} placeholder="Bank's loan application number" />
           </label>
         )}
+        {bankId && teams.map((s) => (
+          <OfficerSelect key={s.officer_team} bankId={Number(bankId)} team={s.officer_team ?? ""} teamName={s.officer_team_name ?? ""}
+            value={picked[s.officer_team ?? ""] ?? null} onChange={(v) => setPicked((p) => ({ ...p, [s.officer_team ?? ""]: v }))} />
+        ))}
         {error && <p role="alert" className={alertBox}>{error}</p>}
         <div className="flex gap-2">
           <button type="submit" className={btnPrimary} disabled={busy}>Open case</button>

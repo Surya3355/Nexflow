@@ -262,3 +262,29 @@ UPDATE cases SET status = $2, updated_at = now(), updated_by = $3 WHERE id = $1;
 
 -- name: CaseStageRole :one
 SELECT COALESCE(s.role, '')::text FROM cases c JOIN stages s ON s.id = c.current_stage_id WHERE c.id = $1;
+
+-- name: GetBankOfficerForPick :one
+-- An officer as a case pick sees it: its bank, team and whether it is removed.
+SELECT id, bank_id, team, (removed_at IS NOT NULL)::boolean AS removed FROM bank_officers WHERE id = $1;
+
+-- name: LatestCaseOfficer :one
+SELECT officer_id FROM case_officers WHERE case_id = $1 AND team = $2
+ORDER BY picked_at DESC, id DESC LIMIT 1;
+
+-- name: InsertCaseOfficer :exec
+INSERT INTO case_officers (case_id, team, officer_id, picked_at, picked_by) VALUES ($1, $2, $3, $4, $5);
+
+-- name: CurrentCaseOfficers :many
+-- The latest pick per team, with the officer's current details.
+SELECT DISTINCT ON (co.team) co.team, o.id, o.name, COALESCE(o.phone, '')::text AS phone, COALESCE(o.email, '')::text AS email, (o.removed_at IS NOT NULL)::boolean AS removed
+FROM case_officers co JOIN bank_officers o ON o.id = co.officer_id
+WHERE co.case_id = $1
+ORDER BY co.team, co.picked_at DESC, co.id DESC;
+
+-- name: CaseOfficerHistory :many
+SELECT co.picked_at, co.team, o.name AS officer_name, u.full_name AS changed_by_name
+FROM case_officers co
+JOIN bank_officers o ON o.id = co.officer_id
+JOIN users u ON u.id = co.picked_by
+WHERE co.case_id = $1
+ORDER BY co.picked_at, co.id;

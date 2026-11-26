@@ -10,6 +10,7 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
 	"github.com/Surya3355/nexflow/backend/modules/leads"
+	"github.com/Surya3355/nexflow/backend/modules/officers"
 	"github.com/Surya3355/nexflow/backend/modules/reports"
 	"github.com/Surya3355/nexflow/backend/modules/workflows"
 	"github.com/go-chi/chi/v5"
@@ -27,6 +28,7 @@ type Deps struct {
 	Archive   *archive.Service
 	Reports   *reports.Service
 	Leads     *leads.Service
+	Officers  *officers.Service
 }
 
 // NewRouter returns the full API under /api. Login and the download link are
@@ -107,6 +109,13 @@ func NewRouter(d Deps) http.Handler {
 		r.Get("/api/cases/{id}/documents", h.listDocuments)
 		r.Post("/api/cases/{id}/documents", h.uploadDocument)
 		r.Get("/api/cases/{id}/documents/{docID}/link", h.documentLink)
+
+		r.Get("/api/officers", h.listOfficers)
+		r.Post("/api/officers", h.addOfficer)
+		r.Put("/api/officers/{id}", h.updateOfficer)
+		r.Delete("/api/officers/{id}", h.removeOfficer)
+		r.Get("/api/cases/{id}/officers", h.caseOfficers)
+		r.Post("/api/cases/{id}/officers", h.setCaseOfficer)
 
 		r.Get("/api/search", h.search)
 

@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "../../api/client";
-import type { Case, PaymentKind, Stage } from "../../api/types";
+import type { Case, CaseOfficer, PaymentKind, Stage } from "../../api/types";
 import { Dialog } from "../../components/Dialog";
 import { alertBox, btn, btnPrimary, input, istToday, label } from "../../components/ui";
+import { OfficerSelect } from "../../components/OfficerSelect";
 import { PaymentFields } from "./PaymentFields";
 
 type Props = {
@@ -13,10 +14,12 @@ type Props = {
   target: Stage | null;
   onClose: () => void;
   onMoved: (updated: Case & { warning?: string }) => void;
+  /** The case's current officers, to prefill the target stage's team. */
+  officers?: CaseOfficer[];
 };
 
 /** Moves a case, asking only what the target stage's role needs (spec 2026-11-25 §5.3). */
-export function MoveStageDialog({ open, caseData, stages, target, onClose, onMoved }: Props) {
+export function MoveStageDialog({ open, caseData, stages, target, onClose, onMoved, officers = [] }: Props) {
   const [pickedId, setPickedId] = useState<number | "">("");
   const [tracking, setTracking] = useState("");
   const [amount, setAmount] = useState(caseData.loan_amount);
@@ -27,6 +30,7 @@ export function MoveStageDialog({ open, caseData, stages, target, onClose, onMov
   const [paid, setPaid] = useState("");
   const [kind, setKind] = useState<PaymentKind>("full");
   const [remark, setRemark] = useState("");
+  const [officerId, setOfficerId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -52,6 +56,11 @@ export function MoveStageDialog({ open, caseData, stages, target, onClose, onMov
   const trackingValue = tracking.trim();
   const trackingChanged = trackingValue !== (caseData.tracking_number ?? "");
   const role = to?.role ?? "";
+  const team = to?.officer_team ?? "";
+  // Prefill the team's current officer while it is still on the bank's list.
+  const currentOfficer = officers.find((o) => o.team === team)?.officer;
+  const prefill = currentOfficer && !currentOfficer.removed ? currentOfficer.id : null;
+  useEffect(() => { setOfficerId(prefill); }, [team, prefill, open]);
   const hasPayments = (caseData.payments?.length ?? 0) > 0;
   const trackingBad = role === "tracking" && trackingChanged && trackingValue !== "" && !/^[A-Z0-9]+$/.test(trackingValue);
 
@@ -84,6 +93,8 @@ export function MoveStageDialog({ open, caseData, stages, target, onClose, onMov
       }
     }
     if (remark.trim()) body.remark = remark.trim();
+    // An empty pick keeps the current officer; the same officer is not sent again.
+    if (team && officerId !== null && officerId !== currentOfficer?.id) body.officer_id = officerId;
     if (busy) return;
     setError(null);
     setBusy(true);
@@ -136,6 +147,9 @@ export function MoveStageDialog({ open, caseData, stages, target, onClose, onMov
         {role === "disbursement" && !caseData.fully_paid && (
           <PaymentFields amount={paid} date={date} kind={kind} partPayments={Boolean(caseData.part_payments)}
             onAmount={setPaid} onDate={setDate} onKind={setKind} />
+        )}
+        {team && (
+          <OfficerSelect bankId={caseData.bank_id} team={team} teamName={to?.officer_team_name ?? team} value={officerId} onChange={setOfficerId} />
         )}
         {to && (
           <label className={label}>Remark (optional)

@@ -10,6 +10,7 @@ import { CustomerDetail } from "./pages/CustomerDetail";
 import { AdminHome } from "./pages/admin/AdminHome";
 import { Reports } from "./pages/Reports";
 import { Projects } from "./pages/Projects";
+import { Officers } from "./pages/Officers";
 import { ProjectDetail } from "./pages/ProjectDetail";
 import { landingFor } from "./roles";
 
@@ -63,6 +64,7 @@ export default function App() {
         <Route path="/" element={<Home user={user} />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:id" element={<ProjectDetail />} />
+        <Route path="/officers" element={<Officers />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/cases/:id" element={<CaseDetail role={user.role} />} />
         <Route path="/customers/:id" element={<CustomerDetail />} />

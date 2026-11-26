@@ -76,3 +76,11 @@ sql:
         package: "leadsdb"
         out: "modules/leads/leadsdb"
         sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/officers/queries"
+    gen:
+      go:
+        package: "officersdb"
+        out: "modules/officers/officersdb"
+        sql_package: "pgx/v5"

@@ -54,6 +54,20 @@ type Bank struct {
 	PartPayments bool
 }
 
+type BankOfficer struct {
+	ID        int64
+	BankID    int64
+	Team      string
+	Name      string
+	Phone     pgtype.Text
+	Email     pgtype.Text
+	RemovedAt pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+	CreatedBy pgtype.Int8
+	UpdatedAt pgtype.Timestamptz
+	UpdatedBy pgtype.Int8
+}
+
 type Case struct {
 	ID                 int64
 	CustomerID         int64
@@ -103,6 +117,15 @@ type CaseDisbursement struct {
 	CreatedBy pgtype.Int8
 	UpdatedAt pgtype.Timestamptz
 	UpdatedBy pgtype.Int8
+}
+
+type CaseOfficer struct {
+	ID        int64
+	CaseID    int64
+	Team      string
+	OfficerID int64
+	PickedAt  pgtype.Timestamptz
+	PickedBy  int64
 }
 
 type CaseStageEvent struct {
@@ -230,6 +253,7 @@ type Stage struct {
 	UpdatedAt        pgtype.Timestamptz
 	UpdatedBy        pgtype.Int8
 	Role             pgtype.Text
+	OfficerTeam      pgtype.Text
 }
 
 type User struct {

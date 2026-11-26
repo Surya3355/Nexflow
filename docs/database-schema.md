@@ -59,6 +59,7 @@ Standard stages are rows with `bank_id = null`. A bank with its own stages has r
 | is_active | boolean | default true |
 | requires_document | boolean | default false. Admin marks a stage that needs documents uploaded (round 11). Rule for "satisfied" is **[open]** |
 | role | text | nullable: `start`, `tracking`, `sanction`, `disbursement`. What the stage does; rules and reports use it, not the code. At most one per role per list (`stages_role_uidx`). Migration 000007 |
+| officer_team | text | nullable: `tdep`, `dovr`, `appraisal`, `fixing`, `officer`. The bank officer team staff pick at this stage. At most one per team per list (`stages_officer_team_uidx`). Migration 000008 |
 
 Constraints: unique `(bank_id, sort_order)` among active rows, and unique `(bank_id, code)`. Because `bank_id` can be null, use `NULLS NOT DISTINCT` (PostgreSQL 15+) or a partial unique index for the standard set. **[open]** PostgreSQL version to confirm.
 
@@ -204,6 +205,30 @@ Milestone dates for reports come from `case_stage_events` (round 2), not from th
 A Full payment completes the case while it is at its disbursement stage. Remaining = sanctioned amount (else loan amount) − total paid, never below 0. Archived and restored with the case.
 
 Every stage change adds a row, including backward moves (round 8). The current stage is `cases.current_stage_id`. Reports count a case in a period if it has an event in that period (round 2).
+
+### bank_officers (round 15 tasks 6 and 7, migration 000008)
+| Column | Type | Rules |
+|---|---|---|
+| bank_id | bigint | not null, FK `banks.id` |
+| team | text | not null, one of the officer team codes; must be a team of the bank's stages (checked by the service) |
+| name | text | not null, not blank, max 80 |
+| phone | text | nullable, 10 digits |
+| email | text | nullable, max 254, one @. At least one of phone and email (`bank_officers_contact_check`) |
+| removed_at | timestamptz | nullable. Rows are never deleted; removed officers stay on cases |
+| created_at/by, updated_at/by | | audit columns |
+
+Among current officers, one bank and team cannot list the same mobile (`bank_officers_active_phone_uidx`) or the same email, ignoring case (`bank_officers_active_email_uidx`), twice; the same mobile or email in another team is allowed.
+
+### case_officers (round 15 tasks 6 and 7, migration 000008)
+| Column | Type | Rules |
+|---|---|---|
+| case_id | bigint | not null, FK `cases.id` |
+| team | text | not null, officer team code |
+| officer_id | bigint | not null, FK `bank_officers.id`; same bank and team as the case (checked by the service) |
+| picked_at | timestamptz | not null |
+| picked_by | bigint | not null, FK `users.id` |
+
+Append-only: every pick adds a row. The latest row per case and team is the current officer; all rows are the history shown on the case page. Archived and restored with the case.
 
 ### case_assignment_events
 | Column | Type | Rules |

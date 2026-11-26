@@ -427,3 +427,67 @@ describe("CaseDetail unit label", () => {
     expect(within(details).getByText("Unit no.")).toBeInTheDocument();
   });
 });
+
+describe("CaseDetail bank officers", () => {
+  const withTeams = [
+    { id: 31, code: "link_sent", name: "Link sent", sort_order: 2, requires_document: false, role: "start", officer_team: "tdep", officer_team_name: "TDEP" },
+    { id: 34, code: "dovr", name: "DOVR", sort_order: 4, requires_document: false, role: "", officer_team: "dovr", officer_team_name: "DOVR" },
+    { id: 40, code: "signing", name: "Signing", sort_order: 10, requires_document: false, role: "", officer_team: "" },
+  ];
+  const officerList = [{ id: 5, bank_id: 1, bank_name: "HDFC", team: "dovr", team_name: "DOVR", name: "Ravi", phone: "9000000001" },
+    { id: 6, bank_id: 1, bank_name: "HDFC", team: "dovr", team_name: "DOVR", name: "Kumar", phone: "9000000002" }];
+  const caseOfficers = {
+    officers: [{ team: "tdep", team_name: "TDEP", officer: { id: 2, name: "Asha", phone: "9876543210", removed: false } }],
+    history: [{ at: "2026-11-12T11:00:00Z", team: "tdep", team_name: "TDEP", officer_name: "Asha", changed_by: "Surya" }],
+  };
+
+  it("shows the Bank officers box and officer picks in the history", async () => {
+    renderCase({ "GET /api/cases/11/officers": { body: caseOfficers } }, withTeams, { ...aCase, current_stage_id: 31 });
+    const box = await screen.findByRole("region", { name: "Bank officers" });
+    expect(within(box).getByText("Asha")).toBeInTheDocument();
+    const items = within(screen.getByRole("list", { name: "Stage history" })).getAllByRole("listitem");
+    expect(items.map((li) => li.textContent?.split(" · ")[0])).toEqual(["Received", "TDEP officer: Asha", "Logged in", "Received"]);
+  });
+
+  it("moving to a stage with a team asks for its officer, prefilled, and sends it", async () => {
+    const reached = { ...caseOfficers, officers: [...caseOfficers.officers, { team: "dovr", team_name: "DOVR", officer: { id: 6, name: "Kumar", phone: "9000000002", removed: false } }] };
+    const spy = renderCase({
+      "GET /api/cases/11/officers": { body: reached },
+      "GET /api/officers": { body: officerList },
+      "POST /api/cases/11/stage": { body: { ...aCase, current_stage_id: 34 } },
+    }, withTeams, { ...aCase, current_stage_id: 31 });
+    await userEvent.click(await ready());
+    const dialog = screen.getByRole("dialog", { name: "Move to DOVR" });
+    const select = within(dialog).getByLabelText("DOVR officer (optional)");
+    await within(dialog).findByRole("option", { name: "Ravi · 9000000001" });
+    expect(select).toHaveValue("6");
+    await userEvent.selectOptions(select, "5");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm move" }));
+    await waitFor(() => expect(bodyOf(spy, "POST /api/cases/11/stage")).toEqual({ stage_id: 34, officer_id: 5 }));
+  });
+
+  it("a stage without a team shows no officer field and sends none", async () => {
+    const spy = renderCase({
+      "GET /api/cases/11/officers": { body: caseOfficers },
+      "POST /api/cases/11/stage": { body: { ...aCase, current_stage_id: 40 } },
+    }, withTeams, { ...aCase, current_stage_id: 34 });
+    await userEvent.click(await ready());
+    const dialog = screen.getByRole("dialog", { name: "Move to Signing" });
+    expect(within(dialog).queryByLabelText(/officer \(optional\)/)).not.toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm move" }));
+    await waitFor(() => expect(bodyOf(spy, "POST /api/cases/11/stage")).toEqual({ stage_id: 40 }));
+  });
+});
+
+describe("CaseDetail officer history wording", () => {
+  it("a standard-list pick reads Bank officer in the history", async () => {
+    renderCase({ "GET /api/cases/11/officers": { body: {
+      officers: [{ team: "officer", team_name: "Officer", officer: { id: 9, name: "Sita", phone: "9876543211", removed: false } }],
+      history: [{ at: "2026-11-12T11:00:00Z", team: "officer", team_name: "Officer", officer_name: "Sita", changed_by: "Surya" }],
+    } } });
+    await screen.findByRole("region", { name: "Bank officers" });
+    const items = within(screen.getByRole("list", { name: "Stage history" })).getAllByRole("listitem");
+    expect(items[1]).toHaveTextContent("Bank officer: Sita");
+    expect(screen.queryByText(/Officer officer/)).not.toBeInTheDocument();
+  });
+});

@@ -48,7 +48,35 @@ export type Stage = {
   sort_order: number;
   requires_document: boolean;
   role?: StageRole;
+  /** The bank officer team this stage asks for ("" = none), spec 2026-11-26 §5.1. */
+  officer_team?: string;
+  officer_team_name?: string;
 };
+
+/** One bank officer in one team. */
+export type BankOfficer = {
+  id: number;
+  bank_id: number;
+  bank_name: string;
+  team: string;
+  team_name: string;
+  name: string;
+  /** "" when the officer gave only an email. */
+  phone: string;
+  /** "" when the officer gave only a mobile. */
+  email?: string;
+};
+
+/** A team the case has reached and its officer (null = not set). */
+export type CaseOfficer = {
+  team: string;
+  team_name: string;
+  officer: { id: number; name: string; phone: string; email?: string; removed: boolean } | null;
+};
+
+export type OfficerEvent = { at: string; team: string; team_name: string; officer_name: string; changed_by: string };
+
+export type CaseOfficers = { officers: CaseOfficer[]; history: OfficerEvent[] };
 
 export type StageEvent = {
   id: number;

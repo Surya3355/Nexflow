@@ -10,7 +10,8 @@ SELECT jsonb_build_object(
   'assignment_events', COALESCE((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id) FROM case_assignment_events e WHERE e.case_id = $1), '[]'::jsonb),
   'documents', COALESCE((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.id) FROM documents d WHERE d.case_id = $1), '[]'::jsonb),
   'alerts', COALESCE((SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id) FROM alert_log a WHERE a.case_id = $1), '[]'::jsonb),
-  'payments', COALESCE((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.id) FROM case_disbursements d WHERE d.case_id = $1), '[]'::jsonb)
+  'payments', COALESCE((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.id) FROM case_disbursements d WHERE d.case_id = $1), '[]'::jsonb),
+  'officers', COALESCE((SELECT jsonb_agg(to_jsonb(o) ORDER BY o.id) FROM case_officers o WHERE o.case_id = $1), '[]'::jsonb)
 )::text AS doc;
 
 -- name: DeleteCaseAlerts :exec
@@ -18,6 +19,9 @@ DELETE FROM alert_log WHERE case_id = $1;
 
 -- name: DeleteCaseDocuments :exec
 DELETE FROM documents WHERE case_id = $1;
+
+-- name: DeleteCaseOfficers :exec
+DELETE FROM case_officers WHERE case_id = $1;
 
 -- name: DeleteCasePayments :exec
 DELETE FROM case_disbursements WHERE case_id = $1;

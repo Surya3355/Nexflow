@@ -404,3 +404,63 @@ func TestMigration7RolesAndPayments(t *testing.T) {
 		t.Fatalf("501-char remark err = %v, want 23514", err)
 	}
 }
+
+func TestMigration8Officers(t *testing.T) {
+	pool := testdb.New(t)
+	if err := migrateTo(pool, 7); err != nil {
+		t.Fatalf("to 7: %v", err)
+	}
+	ctx := context.Background()
+	_, bank, _, _, _ := m6Fixture(t, pool)
+	// A bank already on HDFC stages before migration 8.
+	for i, code := range []string{"link_sent", "dovr", "appraisal", "under_fixing", "signing"} {
+		if _, err := pool.Exec(ctx, `INSERT INTO stages (bank_id, code, name, sort_order) VALUES ($1, $2, $2, $3)`, bank, code, i+1); err != nil {
+			t.Fatalf("hdfc stage: %v", err)
+		}
+	}
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	var team string
+	mustScan(t, pool.QueryRow(ctx, `SELECT COALESCE(officer_team, '') FROM stages WHERE bank_id IS NULL AND code = 'received'`), &team)
+	if team != "officer" {
+		t.Fatalf("standard received team = %q, want officer", team)
+	}
+	want := map[string]string{"link_sent": "tdep", "dovr": "dovr", "appraisal": "appraisal", "under_fixing": "fixing", "signing": ""}
+	for code, w := range want {
+		mustScan(t, pool.QueryRow(ctx, `SELECT COALESCE(officer_team, '') FROM stages WHERE bank_id = $1 AND code = $2`, bank, code), &team)
+		if team != w {
+			t.Errorf("team of %s = %q, want %q", code, team, w)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE stages SET officer_team = 'officer' WHERE bank_id IS NULL AND code = 'logged_in'`); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("second officer team err = %v, want 23505", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, phone) VALUES ($1, 'dovr', 'Ravi', '12345')`, bank); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Fatalf("short phone err = %v, want 23514", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, phone) VALUES ($1, 'dovr', 'Ravi', '9876543210')`, bank); err != nil {
+		t.Fatalf("officer: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, phone) VALUES ($1, 'dovr', 'Ravi K', '9876543210')`, bank); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("same phone same team err = %v, want 23505", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, phone) VALUES ($1, 'appraisal', 'Ravi', '9876543210')`, bank); err != nil {
+		t.Fatalf("same phone other team: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name) VALUES ($1, 'dovr', 'No contact')`, bank); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Fatalf("officer without mobile or email err = %v, want 23514", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, email) VALUES ($1, 'dovr', 'Mail', 'a@x.example')`, bank); err != nil {
+		t.Fatalf("email only: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, email) VALUES ($1, 'dovr', 'Mail 2', 'A@X.example')`, bank); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("same email same team err = %v, want 23505", err)
+	}
+	if err := Down(pool); err != nil {
+		t.Fatalf("Down: %v", err)
+	}
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up again: %v", err)
+	}
+}

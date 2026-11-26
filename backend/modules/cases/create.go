@@ -108,6 +108,10 @@ type NewCase struct {
 	// BuilderContactID is one of the project's active contacts; 0 means none,
 	// which is only allowed when the project has no active contacts.
 	BuilderContactID int64
+	// Officers maps an officer team to the officer picked for it (spec
+	// 2026-11-26 §5.3). Only teams on the stages the case starts through are
+	// allowed; an id of 0 means not known yet.
+	Officers map[string]int64
 	// BringBack makes a dropped customer active again in the same
 	// transaction (spec 2026-11-21 §4.6). It does nothing for an active one.
 	BringBack bool
@@ -181,6 +185,7 @@ type prepared struct {
 	tracking pgtype.Text
 	unit     pgtype.Text
 	contact  pgtype.Int8
+	officers map[string]int64 // checked teams; ids are checked when written
 }
 
 // prepare checks everything about a new case that needs no lock.
@@ -247,6 +252,23 @@ func (s *Service) prepare(ctx context.Context, in NewCase) (prepared, error) {
 	default:
 		return p, ErrInvalidStart
 	}
+	reached := map[string]bool{}
+	for _, st := range stages {
+		for _, id := range p.stages {
+			if st.ID == id && st.OfficerTeam != "" {
+				reached[st.OfficerTeam] = true
+			}
+		}
+	}
+	p.officers = map[string]int64{}
+	for team, id := range in.Officers {
+		if !reached[team] {
+			return p, ErrTeamNotOnStages
+		}
+		if id != 0 {
+			p.officers[team] = id
+		}
+	}
 	return p, nil
 }
 
@@ -288,6 +310,11 @@ func (s *Service) insertTx(ctx context.Context, q *casesdb.Queries, actor access
 		CaseID: id, FromUserID: pgtype.Int8{}, ToUserID: in.AssigneeID, ChangedBy: actor.ID, ChangedAt: now,
 	}); err != nil {
 		return 0, fmt.Errorf("cases: assignment event: %w", err)
+	}
+	for team, officerID := range p.officers {
+		if err := s.pickOfficerTx(ctx, q, actor, id, in.BankID, team, officerID, now.Time); err != nil {
+			return 0, err
+		}
 	}
 	actorID, caseID := actor.ID, id
 	if err := s.rec.Record(ctx, history.Entry{

@@ -22,6 +22,7 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/documents"
 	"github.com/Surya3355/nexflow/backend/modules/history"
 	"github.com/Surya3355/nexflow/backend/modules/leads"
+	"github.com/Surya3355/nexflow/backend/modules/officers"
 	"github.com/Surya3355/nexflow/backend/modules/reports"
 	"github.com/Surya3355/nexflow/backend/modules/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -63,6 +64,7 @@ func newEnv(t *testing.T) *env {
 		Archive:   archive.NewService(pool, rec),
 		Reports:   reports.NewService(pool),
 		Leads:     leads.NewService(pool, rec),
+		Officers:  officers.NewService(pool, wf, rec),
 	})
 	e.srv = httptest.NewServer(handler)
 	t.Cleanup(e.srv.Close)

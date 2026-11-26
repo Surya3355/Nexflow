@@ -70,12 +70,12 @@ describe("pages by role", () => {
     expect(await screen.findByRole("searchbox")).toBeInTheDocument();
   });
 
-  it("manager and employee see Home, Projects and Reports only, and land on Home", async () => {
+  it("manager and employee see Home, Projects, Officers and Reports only, and land on Home", async () => {
     for (const role of ["manager", "employee"] as const) {
       await signInAs(role);
       const nav = await screen.findByRole("navigation", { name: "Main" });
       const links = within(nav).getAllByRole("link").map((a) => a.textContent);
-      expect(links).toEqual(["Home", "Projects", "Reports"]);
+      expect(links).toEqual(["Home", "Projects", "Officers", "Reports"]);
       expect(await screen.findByRole("searchbox")).toBeInTheDocument();
       cleanup();
       vi.restoreAllMocks();

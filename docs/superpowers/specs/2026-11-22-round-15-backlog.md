@@ -87,13 +87,13 @@ they appear nowhere on Home (only through search). Task 1 (leads) fixes this.
   type: Flat no., Villa no., Plot no.
 - Open: is it required, and what applies to NA projects?
 
-### Task 6: Bank officer list
+### Task 6: Bank officer list (design with Task 7: `2026-11-26-bank-officers-design.md`). **Built 2026-11-26.**
 
 - A maintained list of bank officers: name and mobile number, per bank.
 - Staff pick an officer from a dropdown instead of typing.
 - HDFC: different officers at different stages. SBI: one officer for now.
 
-### Task 7: Officer details on stages
+### Task 7: Officer details on stages. **Built 2026-11-26** (with Task 6).
 
 - Some stages record which officer is handling the case, so staff can follow up
   directly.
@@ -117,7 +117,7 @@ they appear nowhere on Home (only through search). Task 1 (leads) fixes this.
 
 ## Order
 
-Done: 1, 2 (2026-11-23), 4, 5, 3 (2026-11-24), 10 (2026-11-25).
+Done: 1, 2 (2026-11-23), 4, 5, 3 (2026-11-24), 10 (2026-11-25), 6, 7 (2026-11-26).
 **Owner, 2026-11-24:** the HDFC work needs the bank's own flow first, so **Task 10 (HDFC stages) comes next**, then
 6 → 7 → 8 → 9 on top of it. Owner will provide the HDFC stage list.
 

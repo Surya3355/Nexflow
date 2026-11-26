@@ -8,6 +8,7 @@ export function menuFor(role: Role): MenuItem[] {
   const items: MenuItem[] = [
     { to: "/", label: "Home" },
     { to: "/projects", label: "Projects" },
+    { to: "/officers", label: "Officers" },
     { to: "/reports", label: "Reports" },
   ];
   if (role === "admin") items.push({ to: "/admin", label: "Admin" });

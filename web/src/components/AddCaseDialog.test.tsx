@@ -237,3 +237,61 @@ describe("AddCaseDialog unit label", () => {
     expect(bodyOf(spy, "POST /api/leads/9/case")).toMatchObject({ start_at: "", tracking_number: "" });
   });
 });
+
+describe("AddCaseDialog officers", () => {
+  const hdfcStages = [
+    { id: 30, code: "received", name: "Received", sort_order: 1, requires_document: false, role: "", officer_team: "" },
+    { id: 31, code: "link_sent", name: "Link sent", sort_order: 2, requires_document: false, role: "start", officer_team: "tdep", officer_team_name: "TDEP" },
+    { id: 34, code: "dovr", name: "DOVR", sort_order: 4, requires_document: false, role: "", officer_team: "dovr", officer_team_name: "DOVR" },
+  ];
+  const standardStages = [
+    { id: 1, code: "received", name: "Received", sort_order: 1, requires_document: false, role: "start", officer_team: "officer", officer_team_name: "Officer" },
+    { id: 2, code: "logged_in", name: "Logged in", sort_order: 2, requires_document: false, role: "tracking", officer_team: "" },
+  ];
+  const officers = [
+    { id: 8, bank_id: 1, bank_name: "HDFC", team: "tdep", team_name: "TDEP", name: "Asha", phone: "9876543210" },
+    { id: 9, bank_id: 2, bank_name: "SBI", team: "officer", team_name: "Officer", name: "Sita", phone: "9876543211" },
+  ];
+
+  function setupBanks() {
+    const spy = mockApi({
+      "GET /api/config/banks": { body: [{ id: 1, name: "HDFC", stage_list: "hdfc" }, { id: 2, name: "SBI", stage_list: "standard" }] },
+      "GET /api/config/banks/1/stages": { body: hdfcStages },
+      "GET /api/config/banks/2/stages": { body: standardStages },
+      "GET /api/officers": { body: officers },
+      "GET /api/users": { body: [{ id: 2, full_name: "Anil", username: "anil" }] },
+      "POST /api/leads/9/case": { status: 201, body: saved },
+    });
+    render(<AddCaseDialog open onClose={() => {}} onSaved={() => {}} customerName="Ravi Kumar"
+      fromLead={{ id: 9, projectId: 4, projectName: "Green Villas", assigneeId: 2, builderContactId: null }} />);
+    return { spy, dialog: screen.getByRole("dialog") };
+  }
+
+  it("HDFC asks for the TDEP officer and sends it", async () => {
+    const { spy, dialog } = setupBanks();
+    await within(dialog).findByRole("option", { name: "HDFC" });
+    expect(within(dialog).queryByLabelText(/officer \(optional\)/)).not.toBeInTheDocument();
+    await userEvent.selectOptions(within(dialog).getByLabelText("Bank for new case"), "1");
+    const select = await within(dialog).findByLabelText("TDEP officer (optional)");
+    expect(within(dialog).queryByLabelText("DOVR officer (optional)")).not.toBeInTheDocument();
+    await within(dialog).findByRole("option", { name: "Asha · 9876543210" });
+    await userEvent.selectOptions(select, "8");
+    await userEvent.type(within(dialog).getByLabelText("Loan amount (₹)"), "100000");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Open case" }));
+    await waitFor(() => expect(bodyOf(spy, "POST /api/leads/9/case")).toMatchObject({ bank_id: 1, officers: { tdep: 8 } }));
+  });
+
+  it("standard bank asks for the Officer even when starting at Logged in; nothing chosen sends no officers", async () => {
+    const { spy, dialog } = setupBanks();
+    await within(dialog).findByRole("option", { name: "SBI" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Bank for new case"), "2");
+    await within(dialog).findByLabelText("Bank officer (optional)");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Start at"), "logged_in");
+    expect(within(dialog).getByLabelText("Bank officer (optional)")).toBeInTheDocument();
+    await userEvent.type(within(dialog).getByLabelText("Tracking number"), "SB1");
+    await userEvent.type(within(dialog).getByLabelText("Loan amount (₹)"), "100000");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Open case" }));
+    await waitFor(() => expect(bodyOf(spy, "POST /api/leads/9/case")).toBeDefined());
+    expect(bodyOf(spy, "POST /api/leads/9/case")).not.toHaveProperty("officers");
+  });
+});

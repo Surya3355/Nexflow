@@ -153,6 +153,47 @@ func (q *Queries) BankExists(ctx context.Context, id int64) (bool, error) {
 	return exists, err
 }
 
+const caseOfficerHistory = `-- name: CaseOfficerHistory :many
+SELECT co.picked_at, co.team, o.name AS officer_name, u.full_name AS changed_by_name
+FROM case_officers co
+JOIN bank_officers o ON o.id = co.officer_id
+JOIN users u ON u.id = co.picked_by
+WHERE co.case_id = $1
+ORDER BY co.picked_at, co.id
+`
+
+type CaseOfficerHistoryRow struct {
+	PickedAt      pgtype.Timestamptz
+	Team          string
+	OfficerName   string
+	ChangedByName string
+}
+
+func (q *Queries) CaseOfficerHistory(ctx context.Context, caseID int64) ([]CaseOfficerHistoryRow, error) {
+	rows, err := q.db.Query(ctx, caseOfficerHistory, caseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CaseOfficerHistoryRow
+	for rows.Next() {
+		var i CaseOfficerHistoryRow
+		if err := rows.Scan(
+			&i.PickedAt,
+			&i.Team,
+			&i.OfficerName,
+			&i.ChangedByName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const casePaymentState = `-- name: CasePaymentState :one
 SELECT count(*)::bigint AS payments, (count(*) FILTER (WHERE kind = 'full') > 0)::boolean AS fully_paid
 FROM case_disbursements WHERE case_id = $1
@@ -324,6 +365,50 @@ func (q *Queries) ClearCaseDocumentsPurgeAfter(ctx context.Context, caseID int64
 	return err
 }
 
+const currentCaseOfficers = `-- name: CurrentCaseOfficers :many
+SELECT DISTINCT ON (co.team) co.team, o.id, o.name, COALESCE(o.phone, '')::text AS phone, COALESCE(o.email, '')::text AS email, (o.removed_at IS NOT NULL)::boolean AS removed
+FROM case_officers co JOIN bank_officers o ON o.id = co.officer_id
+WHERE co.case_id = $1
+ORDER BY co.team, co.picked_at DESC, co.id DESC
+`
+
+type CurrentCaseOfficersRow struct {
+	Team    string
+	ID      int64
+	Name    string
+	Phone   string
+	Email   string
+	Removed bool
+}
+
+// The latest pick per team, with the officer's current details.
+func (q *Queries) CurrentCaseOfficers(ctx context.Context, caseID int64) ([]CurrentCaseOfficersRow, error) {
+	rows, err := q.db.Query(ctx, currentCaseOfficers, caseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurrentCaseOfficersRow
+	for rows.Next() {
+		var i CurrentCaseOfficersRow
+		if err := rows.Scan(
+			&i.Team,
+			&i.ID,
+			&i.Name,
+			&i.Phone,
+			&i.Email,
+			&i.Removed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const customerSummary = `-- name: CustomerSummary :one
 SELECT id, name, mobile, COALESCE(email, '')::text AS email, status FROM customers WHERE id = $1
 `
@@ -385,6 +470,30 @@ func (q *Queries) DropCase(ctx context.Context, arg DropCaseParams) error {
 		arg.DroppedBy,
 	)
 	return err
+}
+
+const getBankOfficerForPick = `-- name: GetBankOfficerForPick :one
+SELECT id, bank_id, team, (removed_at IS NOT NULL)::boolean AS removed FROM bank_officers WHERE id = $1
+`
+
+type GetBankOfficerForPickRow struct {
+	ID      int64
+	BankID  int64
+	Team    string
+	Removed bool
+}
+
+// An officer as a case pick sees it: its bank, team and whether it is removed.
+func (q *Queries) GetBankOfficerForPick(ctx context.Context, id int64) (GetBankOfficerForPickRow, error) {
+	row := q.db.QueryRow(ctx, getBankOfficerForPick, id)
+	var i GetBankOfficerForPickRow
+	err := row.Scan(
+		&i.ID,
+		&i.BankID,
+		&i.Team,
+		&i.Removed,
+	)
+	return i, err
 }
 
 const getBuilderContact = `-- name: GetBuilderContact :one
@@ -630,6 +739,29 @@ func (q *Queries) InsertCaseDisbursement(ctx context.Context, arg InsertCaseDisb
 	return id, err
 }
 
+const insertCaseOfficer = `-- name: InsertCaseOfficer :exec
+INSERT INTO case_officers (case_id, team, officer_id, picked_at, picked_by) VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertCaseOfficerParams struct {
+	CaseID    int64
+	Team      string
+	OfficerID int64
+	PickedAt  pgtype.Timestamptz
+	PickedBy  int64
+}
+
+func (q *Queries) InsertCaseOfficer(ctx context.Context, arg InsertCaseOfficerParams) error {
+	_, err := q.db.Exec(ctx, insertCaseOfficer,
+		arg.CaseID,
+		arg.Team,
+		arg.OfficerID,
+		arg.PickedAt,
+		arg.PickedBy,
+	)
+	return err
+}
+
 const insertCaseStageEvent = `-- name: InsertCaseStageEvent :exec
 INSERT INTO case_stage_events (case_id, stage_id, reached_at, changed_by)
 VALUES ($1, $2, $3, $4)
@@ -674,6 +806,23 @@ func (q *Queries) InsertCaseStageEventAt(ctx context.Context, arg InsertCaseStag
 		arg.Remark,
 	)
 	return err
+}
+
+const latestCaseOfficer = `-- name: LatestCaseOfficer :one
+SELECT officer_id FROM case_officers WHERE case_id = $1 AND team = $2
+ORDER BY picked_at DESC, id DESC LIMIT 1
+`
+
+type LatestCaseOfficerParams struct {
+	CaseID int64
+	Team   string
+}
+
+func (q *Queries) LatestCaseOfficer(ctx context.Context, arg LatestCaseOfficerParams) (int64, error) {
+	row := q.db.QueryRow(ctx, latestCaseOfficer, arg.CaseID, arg.Team)
+	var officer_id int64
+	err := row.Scan(&officer_id)
+	return officer_id, err
 }
 
 const listCasePayments = `-- name: ListCasePayments :many

@@ -149,6 +149,7 @@ func (s *Service) restoreCase(ctx context.Context, tx pgx.Tx, snapshot []byte, r
 			Documents        json.RawMessage `json:"documents"`
 			Alerts           json.RawMessage `json:"alerts"`
 			Payments         json.RawMessage `json:"payments"` // absent in snapshots before 2026-11-25
+			Officers         json.RawMessage `json:"officers"` // absent in snapshots before 2026-11-26
 		} `json:"children"`
 	}
 	if err := json.Unmarshal(snapshot, &snap); err != nil {
@@ -156,6 +157,9 @@ func (s *Service) restoreCase(ctx context.Context, tx pgx.Tx, snapshot []byte, r
 	}
 	if len(snap.Children.Payments) == 0 {
 		snap.Children.Payments = json.RawMessage("[]")
+	}
+	if len(snap.Children.Officers) == 0 {
+		snap.Children.Officers = json.RawMessage("[]")
 	}
 	var head struct {
 		ID         int64  `json:"id"`
@@ -215,6 +219,7 @@ func (s *Service) restoreCase(ctx context.Context, tx pgx.Tx, snapshot []byte, r
 		{"documents", `INSERT INTO documents OVERRIDING SYSTEM VALUE SELECT * FROM jsonb_populate_recordset(NULL::documents, $1::jsonb)`, snap.Children.Documents},
 		{"alerts", `INSERT INTO alert_log OVERRIDING SYSTEM VALUE SELECT * FROM jsonb_populate_recordset(NULL::alert_log, $1::jsonb)`, snap.Children.Alerts},
 		{"payments", `INSERT INTO case_disbursements OVERRIDING SYSTEM VALUE SELECT * FROM jsonb_populate_recordset(NULL::case_disbursements, $1::jsonb)`, snap.Children.Payments},
+		{"officers", `INSERT INTO case_officers OVERRIDING SYSTEM VALUE SELECT * FROM jsonb_populate_recordset(NULL::case_officers, $1::jsonb)`, snap.Children.Officers},
 	}
 	for _, c := range children {
 		if _, err := tx.Exec(ctx, c.query, string(c.doc)); err != nil {

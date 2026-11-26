@@ -270,13 +270,14 @@ func (h *handlers) leadToCase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		BankID         int64  `json:"bank_id"`
-		LoanAmount     string `json:"loan_amount"`
-		AssigneeID     int64  `json:"assignee_id"`
-		UnitNumber     string `json:"unit_number"`
-		StartAt        string `json:"start_at"`
-		TrackingNumber string `json:"tracking_number"`
-		BuilderContact int64  `json:"builder_contact_id"`
+		BankID         int64            `json:"bank_id"`
+		LoanAmount     string           `json:"loan_amount"`
+		AssigneeID     int64            `json:"assignee_id"`
+		UnitNumber     string           `json:"unit_number"`
+		StartAt        string           `json:"start_at"`
+		TrackingNumber string           `json:"tracking_number"`
+		BuilderContact int64            `json:"builder_contact_id"`
+		Officers       map[string]int64 `json:"officers"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -284,7 +285,7 @@ func (h *handlers) leadToCase(w http.ResponseWriter, r *http.Request) {
 	c, err := h.d.Cases.CreateFromLead(r.Context(), actor(r), id, cases.FromLead{
 		BankID: in.BankID, LoanAmount: in.LoanAmount, AssigneeID: in.AssigneeID,
 		UnitNumber: in.UnitNumber, StartAt: in.StartAt, TrackingNumber: in.TrackingNumber,
-		BuilderContactID: in.BuilderContact,
+		BuilderContactID: in.BuilderContact, Officers: in.Officers,
 	})
 	if err != nil {
 		writeError(w, err)

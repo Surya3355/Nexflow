@@ -4,7 +4,7 @@ import { BuilderContactPicker } from "../components/BuilderContactPicker";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, upload } from "../api/client";
-import type { Case, CaseRow, Customer, DocumentInfo, LeadContact, Project, Stage, StageEvent } from "../api/types";
+import type { Case, CaseOfficers, CaseRow, Customer, DocumentInfo, LeadContact, Project, Stage, StageEvent } from "../api/types";
 import { AddCaseDialog } from "../components/AddCaseDialog";
 import { AssignDialog } from "../components/AssignDialog";
 import { Badge } from "../components/Badge";
@@ -17,6 +17,8 @@ import { MoveStageDialog } from "./case/MoveStageDialog";
 import { Disbursements } from "./case/Disbursements";
 import type { Role } from "../api/types";
 import { ContactLog } from "./lead/ContactLog";
+import { BankOfficers } from "./case/BankOfficers";
+import { officerLabel } from "../api/officers";
 
 type Moving = { target: Stage | null } | null;
 
@@ -42,6 +44,7 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
   const [addingCase, setAddingCase] = useState(false);
   const [pickingContact, setPickingContact] = useState(false);
   const [contacts, setContacts] = useState<LeadContact[]>([]);
+  const [officers, setOfficers] = useState<CaseOfficers>({ officers: [], history: [] });
 
   async function load() {
     const [caseData, hist, docList] = await Promise.all([
@@ -57,6 +60,8 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
       api.request<Customer>("GET", `/api/customers/${caseData.customer_id}`).catch(() => null),
     ]);
     setStages([...stageList].sort((a, b) => a.sort_order - b.sort_order));
+    api.request<CaseOfficers>("GET", `/api/cases/${caseId}/officers`)
+      .then(setOfficers).catch(() => setOfficers({ officers: [], history: [] }));
     setCustomer(cust);
     setRow(cust?.cases?.find((x) => x.id === caseData.id) ?? null);
     if (caseData.lead_id) {
@@ -80,6 +85,11 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
   const next = currentIndex >= 0 ? stages[currentIndex + 1] : undefined;
   const needsDocs = Boolean(current?.requires_document) && docs.length === 0;
   const lastEvent = (code: string) => [...history].reverse().find((e) => e.stage_code === code);
+  // Stage moves and officer picks in one list, by time (spec 2026-11-26 §5.3).
+  const timeline = [
+    ...history.map((e) => ({ key: `s${e.id}`, at: e.reached_at, title: e.stage_name, by: e.changed_by, remark: e.remark })),
+    ...officers.history.map((e, i) => ({ key: `o${i}`, at: e.at, title: `${officerLabel(e.team_name)}: ${e.officer_name}`, by: e.changed_by, remark: "" })),
+  ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 
   async function moved(updated: Case & { warning?: string }) {
     setMoving(null);
@@ -154,11 +164,11 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
             </div>
           )}
           <details className="mt-4">
-            <summary className="cursor-pointer text-sm text-slate-500">Full history ({history.length})</summary>
+            <summary className="cursor-pointer text-sm text-slate-500">Full history ({timeline.length})</summary>
             <ol aria-label="Stage history" className="mt-2 space-y-1 text-sm">
-              {history.map((e) => (
-                <li key={e.id} className="rounded-lg bg-slate-50 px-3 py-1.5">
-                  <span className="font-medium">{e.stage_name}</span> · {istDate(e.reached_at, true)} · {e.changed_by}
+              {timeline.map((e) => (
+                <li key={e.key} className="rounded-lg bg-slate-50 px-3 py-1.5">
+                  <span className="font-medium">{e.title}</span> · {istDate(e.at, true)} · {e.by}
                   {e.remark && <span className="block text-slate-600">“{e.remark}”</span>}
                 </li>
               ))}
@@ -168,6 +178,8 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
 
         <aside className="space-y-4">
           <Disbursements caseData={c} atDisbursement={current?.role === "disbursement"} canCorrect={role === "admin" || role === "manager"}
+            onChanged={() => { load().catch(() => setError("Could not reload this case.")); }} />
+          <BankOfficers caseId={caseId} bankId={c.bank_id} officers={officers.officers} readOnly={c.status === "dropped"}
             onChanged={() => { load().catch(() => setError("Could not reload this case.")); }} />
           <section className={card}>
             <div className="flex items-center justify-between">
@@ -222,7 +234,7 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
         </aside>
       </div>
 
-      <MoveStageDialog open={moving !== null} caseData={c} stages={stages} target={moving?.target ?? null} onClose={() => setMoving(null)} onMoved={moved} />
+      <MoveStageDialog open={moving !== null} caseData={c} stages={stages} target={moving?.target ?? null} officers={officers.officers} onClose={() => setMoving(null)} onMoved={moved} />
       <UploadDialog open={uploading} caseId={caseId} onClose={() => setUploading(false)} onUploaded={async () => { setUploading(false); setDocs(await api.request<DocumentInfo[]>("GET", `/api/cases/${caseId}/documents`)); }} />
       <ProjectDialog open={changingProject} caseId={caseId} current={c.project_id} onClose={() => setChangingProject(false)} onSaved={async () => { setChangingProject(false); await load(); }} />
       <BuilderContactPicker open={pickingContact} projectId={c.project_id} current={c.builder_contact_id} onClose={() => setPickingContact(false)}

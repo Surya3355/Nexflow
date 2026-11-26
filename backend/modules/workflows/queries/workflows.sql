@@ -14,25 +14,25 @@ VALUES ($1, $2, $2)
 RETURNING id, name, is_active, part_payments;
 
 -- name: ListStandardStages :many
-SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role
+SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role, COALESCE(officer_team, '')::text AS officer_team
 FROM stages WHERE bank_id IS NULL AND is_active ORDER BY sort_order;
 
 -- name: ListStagesForBank :many
-SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role
+SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role, COALESCE(officer_team, '')::text AS officer_team
 FROM stages WHERE bank_id = $1 AND is_active ORDER BY sort_order;
 
 -- name: InsertStage :one
 INSERT INTO stages (bank_id, code, name, sort_order, requires_document, created_by, updated_by)
 VALUES ($1, $2, $3, $4, $5, $6, $6)
-RETURNING id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role;
+RETURNING id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role, COALESCE(officer_team, '')::text AS officer_team;
 
 -- name: SetStageRequiresDocument :one
 UPDATE stages SET requires_document = $2, updated_at = now(), updated_by = $3
 WHERE id = $1
-RETURNING id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role;
+RETURNING id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role, COALESCE(officer_team, '')::text AS officer_team;
 
 -- name: GetStage :one
-SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role FROM stages WHERE id = $1;
+SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role, COALESCE(officer_team, '')::text AS officer_team FROM stages WHERE id = $1;
 
 -- name: ListDropdownValues :many
 SELECT id, category, value, sort_order FROM dropdown_values
@@ -92,8 +92,8 @@ SELECT b.id, b.part_payments,
 FROM banks b WHERE b.id = $1 FOR UPDATE OF b;
 
 -- name: InsertBankStage :one
-INSERT INTO stages (bank_id, code, name, sort_order, role, created_by, updated_by)
-VALUES ($1, $2, $3, $4, sqlc.narg('role'), $5, $5)
+INSERT INTO stages (bank_id, code, name, sort_order, role, officer_team, created_by, updated_by)
+VALUES ($1, $2, $3, $4, sqlc.narg('role'), sqlc.narg('officer_team'), $5, $5)
 RETURNING id;
 
 -- name: MoveBankCasesStage :exec

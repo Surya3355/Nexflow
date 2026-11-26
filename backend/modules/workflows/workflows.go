@@ -46,6 +46,7 @@ type Stage struct {
 	SortOrder        int
 	RequiresDocument bool
 	Role             string // "" or one of the Role constants
+	OfficerTeam      string // "" or one of the Team constants
 }
 
 // DropdownValue is one admin-maintained choice, such as a drop reason.
@@ -144,7 +145,7 @@ func (s *Service) StagesFor(ctx context.Context, bankID int64) ([]Stage, error) 
 		out := make([]Stage, 0, len(std))
 		for _, r := range std {
 			out = append(out, Stage{ID: r.ID, Code: r.Code, Name: r.Name,
-				SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument, Role: r.Role})
+				SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument, Role: r.Role, OfficerTeam: r.OfficerTeam})
 		}
 		return out, nil
 	}
@@ -152,7 +153,7 @@ func (s *Service) StagesFor(ctx context.Context, bankID int64) ([]Stage, error) 
 	for _, r := range rows {
 		id := r.BankID.Int64
 		out = append(out, Stage{ID: r.ID, BankID: &id, Code: r.Code, Name: r.Name,
-			SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument, Role: r.Role})
+			SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument, Role: r.Role, OfficerTeam: r.OfficerTeam})
 	}
 	return out, nil
 }
@@ -266,7 +267,7 @@ func (s *Service) StandardStages(ctx context.Context) ([]Stage, error) {
 	out := make([]Stage, 0, len(std))
 	for _, r := range std {
 		out = append(out, Stage{ID: r.ID, Code: r.Code, Name: r.Name,
-			SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument, Role: r.Role})
+			SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument, Role: r.Role, OfficerTeam: r.OfficerTeam})
 	}
 	return out, nil
 }

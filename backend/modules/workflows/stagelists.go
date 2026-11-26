@@ -32,21 +32,37 @@ var (
 	ErrBankHasOwnStages = errors.New("workflows: this bank already has its own stages")
 )
 
-type templateStage struct{ code, name, role string }
+// Officer teams: which bank officer a stage asks staff to pick (spec 2026-11-26 §5.1).
+const (
+	TeamTDEP      = "tdep"
+	TeamDOVR      = "dovr"
+	TeamAppraisal = "appraisal"
+	TeamFixing    = "fixing"
+	TeamOfficer   = "officer" // the one officer of a standard-list bank (SBI)
+)
+
+var teamNames = map[string]string{
+	TeamTDEP: "TDEP", TeamDOVR: "DOVR", TeamAppraisal: "Appraisal", TeamFixing: "Fixing", TeamOfficer: "Officer",
+}
+
+// TeamName is the display name of an officer team, or "" for an unknown code.
+func TeamName(code string) string { return teamNames[code] }
+
+type templateStage struct{ code, name, role, team string }
 
 // hdfcTemplate is HDFC's stage list, approved by the owner on 2026-11-25.
 var hdfcTemplate = []templateStage{
-	{"received", "Received", ""},
-	{"link_sent", "Link sent", RoleStart},
-	{"application_submitted", "Application submitted", RoleTracking},
-	{"dovr", "DOVR", ""},
-	{"appraisal", "Appraisal", ""},
-	{"sanctioned", "Sanctioned", RoleSanction},
-	{"upload_documents", "Upload documents", ""},
-	{"under_fixing", "Under fixing", ""},
-	{"fixed", "Fixed", ""},
-	{"signing", "Signing", ""},
-	{"disbursement", "Disbursement", RoleDisbursement},
+	{"received", "Received", "", ""},
+	{"link_sent", "Link sent", RoleStart, TeamTDEP},
+	{"application_submitted", "Application submitted", RoleTracking, ""},
+	{"dovr", "DOVR", "", TeamDOVR},
+	{"appraisal", "Appraisal", "", TeamAppraisal},
+	{"sanctioned", "Sanctioned", RoleSanction, ""},
+	{"upload_documents", "Upload documents", "", ""},
+	{"under_fixing", "Under fixing", "", TeamFixing},
+	{"fixed", "Fixed", "", ""},
+	{"signing", "Signing", "", ""},
+	{"disbursement", "Disbursement", RoleDisbursement, ""},
 }
 
 // standardToHDFC moves a case on a standard stage to the nearest HDFC stage.
@@ -115,7 +131,8 @@ func (s *Service) SetBankStageList(ctx context.Context, actor access.User, bankI
 	for i, st := range hdfcTemplate {
 		id, err := q.InsertBankStage(ctx, workflowsdb.InsertBankStageParams{
 			BankID: pgtype.Int8{Int64: bankID, Valid: true}, Code: st.code, Name: st.name,
-			SortOrder: int32(i + 1), Role: pgtype.Text{String: st.role, Valid: st.role != ""}, CreatedBy: by,
+			SortOrder: int32(i + 1), Role: pgtype.Text{String: st.role, Valid: st.role != ""},
+			OfficerTeam: pgtype.Text{String: st.team, Valid: st.team != ""}, CreatedBy: by,
 		})
 		if err != nil {
 			return fmt.Errorf("workflows: insert stage %s: %w", st.code, err)

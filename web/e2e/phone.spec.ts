@@ -68,10 +68,19 @@ const api: Record<string, unknown> = {
   "/api/cases/1042/history": [{ id: 1, reached_at: "2026-11-03T04:44:00Z", stage_code: "received", stage_name: "Received", changed_by: "Priya Sharma" }],
   "/api/cases/1042/documents": [],
   "/api/config/banks/1/stages": stages,
+  "/api/officers": [
+    { id: 1, bank_id: 1, bank_name: "HDFC", team: "dovr", team_name: "DOVR", name: "Venkataramanan Subramanian Iyer", phone: "9876543210" },
+    { id: 2, bank_id: 1, bank_name: "HDFC", team: "fixing", team_name: "Fixing", name: "Lakshmi", phone: "9876543211" },
+  ],
+  "/api/cases/1042/officers": {
+    officers: [{ team: "dovr", team_name: "DOVR", officer: { id: 1, name: "Venkataramanan Subramanian Iyer", phone: "9876543210", removed: false } },
+      { team: "appraisal", team_name: "Appraisal", officer: null }],
+    history: [],
+  },
   "/api/customers/5": { id: 5, name: caseRow.customer_name, mobile: "9848012345", email: "ravi.kumar@example.com", status: "active", cases: [caseRow], leads: [leadRow] },
 };
 
-for (const path of ["/", "/cases/1042", "/customers/5", "/leads/1", "/reports", "/projects", "/projects/4"]) {
+for (const path of ["/", "/cases/1042", "/customers/5", "/leads/1", "/reports", "/projects", "/projects/4", "/officers"]) {
   test(`signed-in ${path} has no horizontal scroll at 360 px`, async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 740 });
     await page.route("**/api/**", (route) => {

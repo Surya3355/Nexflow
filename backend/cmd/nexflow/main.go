@@ -17,9 +17,10 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
-	"github.com/Surya3355/nexflow/backend/modules/leads"
 	"github.com/Surya3355/nexflow/backend/modules/history"
 	apihttp "github.com/Surya3355/nexflow/backend/modules/http"
+	"github.com/Surya3355/nexflow/backend/modules/leads"
+	"github.com/Surya3355/nexflow/backend/modules/officers"
 	"github.com/Surya3355/nexflow/backend/modules/reports"
 	"github.com/Surya3355/nexflow/backend/modules/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -74,6 +75,7 @@ func main() {
 		Archive:   archiveSvc,
 		Reports:   reports.NewService(pool),
 		Leads:     leadSvc,
+		Officers:  officers.NewService(pool, wf, rec),
 	})
 
 	jobs := Jobs{Archive: archiveSvc, Queue: queue, Sender: unconfiguredSender{}}
