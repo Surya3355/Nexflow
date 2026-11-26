@@ -46,6 +46,7 @@ Used by the session library (`alexedwards/scs`, PostgreSQL store).
 |---|---|---|
 | name | text | unique, not null (HDFC, SBI, and others) |
 | is_active | boolean | default true |
+| part_payments | boolean | default false. The bank pays some loans in parts (HDFC, later private banks; not SBI). Migration 000007 |
 
 ### stages
 Standard stages are rows with `bank_id = null`. A bank with its own stages has rows with its `bank_id`. A bank with none uses the standard rows (spec §5, round 7).
@@ -57,10 +58,13 @@ Standard stages are rows with `bank_id = null`. A bank with its own stages has r
 | sort_order | integer | not null |
 | is_active | boolean | default true |
 | requires_document | boolean | default false. Admin marks a stage that needs documents uploaded (round 11). Rule for "satisfied" is **[open]** |
+| role | text | nullable: `start`, `tracking`, `sanction`, `disbursement`. What the stage does; rules and reports use it, not the code. At most one per role per list (`stages_role_uidx`). Migration 000007 |
 
 Constraints: unique `(bank_id, sort_order)` among active rows, and unique `(bank_id, code)`. Because `bank_id` can be null, use `NULLS NOT DISTINCT` (PostgreSQL 15+) or a partial unique index for the standard set. **[open]** PostgreSQL version to confirm.
 
-Standard rows (round 1): Received, Logged in, Under sanction, Sanctioned, Documentation, Disbursed (`disbursed` is the final stage).
+Standard rows (round 1): Received, Logged in, Under sanction, Sanctioned, Documentation, Disbursed (`disbursed` is the final stage). Roles: Received start, Logged in tracking, Sanctioned sanction, Disbursed disbursement.
+
+HDFC list (round 15 task 10, admin applies it to a bank): Received, Link sent (start), Application submitted (tracking), DOVR, Appraisal, Sanctioned (sanction), Upload documents, Under fixing, Fixed, Signing, Disbursement (disbursement).
 
 ### dropdown_values
 Admin-maintained lists, starting with the dropped reasons (round 8).
@@ -138,8 +142,7 @@ A customer that still has cases cannot be hard-deleted (round 1, §10). Enforced
 | interest_type | text | `fixed`, `floating`, nullable |
 | tenure_months | integer | nullable, > 0 |
 | sanction_date | date | nullable |
-| disbursed_amount | numeric(14,2) | nullable. Set at Disbursed |
-| disbursement_date | date | nullable |
+| (disbursed_amount, disbursement_date) | — | **dropped in migration 000007**; payments are in `case_disbursements`. Sanction now also overwrites `loan_amount` with the sanctioned amount |
 | created_at | timestamptz | not null. Used for "cases created today" (round 9) |
 | project_id | bigint | not null, FK `projects.id`. NA for loans without a builder project (round 14) |
 | lead_id | bigint | nullable, unique, FK `leads.id` `ON DELETE SET NULL`. The lead this case came from (round 15) |
@@ -187,6 +190,18 @@ Milestone dates for reports come from `case_stage_events` (round 2), not from th
 | stage_id | bigint | not null, FK `stages.id` |
 | reached_at | timestamptz | not null |
 | changed_by | bigint | not null, FK `users.id` |
+| remark | text | nullable, max 500. Optional note on the move (migration 000007) |
+
+### case_disbursements (round 15 task 10, migration 000007)
+| Column | Type | Rules |
+|---|---|---|
+| case_id | bigint | not null, FK `cases.id` |
+| amount | numeric(14,2) | not null, > 0 |
+| paid_on | date | not null (IST date) |
+| kind | text | `part` or `full`; at most one `full` per case (`case_disbursements_full_uidx`) |
+| created_at/by, updated_at/by | | audit columns |
+
+A Full payment completes the case while it is at its disbursement stage. Remaining = sanctioned amount (else loan amount) − total paid, never below 0. Archived and restored with the case.
 
 Every stage change adds a row, including backward moves (round 8). The current stage is `cases.current_stage_id`. Reports count a case in a period if it has an event in that period (round 2).
 

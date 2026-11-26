@@ -34,6 +34,7 @@ func statusFor(err error) int {
 		errors.Is(err, archive.ErrNotFound),
 		errors.Is(err, documents.ErrNotFoundDoc),
 		errors.Is(err, workflows.ErrBankNotFound),
+		errors.Is(err, cases.ErrPaymentNotFound),
 		errors.Is(err, workflows.ErrProjectNotFound),
 		errors.Is(err, cases.ErrProjectNotFound),
 		errors.Is(err, leads.ErrLeadNotFound),
@@ -61,13 +62,22 @@ func statusFor(err error) int {
 		errors.Is(err, leads.ErrLeadExists),
 		errors.Is(err, leads.ErrLeadHasCase),
 		errors.Is(err, leads.ErrCustomerDropped),
-		errors.Is(err, archive.ErrCustomerHasOpenLeads):
+		errors.Is(err, archive.ErrCustomerHasOpenLeads),
+		errors.Is(err, cases.ErrAlreadyFullyPaid),
+		errors.Is(err, workflows.ErrBankHasOwnStages):
 		return http.StatusConflict
 	case errors.Is(err, documents.ErrTooLarge):
 		return http.StatusRequestEntityTooLarge
 	case errors.Is(err, customers.ErrInvalidMobile),
 		errors.Is(err, cases.ErrInvalidAmount),
 		errors.Is(err, cases.ErrTrackingRequired),
+		errors.Is(err, cases.ErrSanctionAmountRequired),
+		errors.Is(err, cases.ErrRemarkTooLong),
+		errors.Is(err, cases.ErrPartNotAllowed),
+		errors.Is(err, cases.ErrInvalidPaymentKind),
+		errors.Is(err, cases.ErrPaymentRequired),
+		errors.Is(err, cases.ErrNotAtDisbursement),
+		errors.Is(err, workflows.ErrInvalidStageList),
 		errors.Is(err, cases.ErrProjectRequired),
 		errors.Is(err, cases.ErrInvalidTracking),
 		errors.Is(err, cases.ErrStageNotForBank),

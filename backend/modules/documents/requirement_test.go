@@ -68,10 +68,10 @@ func TestMissingDocumentDoesNotBlockStageMove(t *testing.T) {
 	mustScan(t, f.pool.QueryRow(ctx, `SELECT id FROM stages WHERE code='logged_in' AND bank_id IS NULL`), &loggedIn)
 	mustScan(t, f.pool.QueryRow(ctx, `SELECT id FROM stages WHERE code='under_sanction' AND bank_id IS NULL`), &underSanction)
 	tn := "NODOC1"
-	if _, err := casesSvc.ChangeStage(ctx, f.actor, f.caseID, loggedIn, &tn, nil, nil); err != nil {
+	if _, err := casesSvc.ChangeStage(ctx, f.actor, f.caseID, cases.StageMove{ToStageID: loggedIn, TrackingNumber: &tn}); err != nil {
 		t.Fatalf("to logged_in: %v", err)
 	}
-	if _, err := casesSvc.ChangeStage(ctx, f.actor, f.caseID, underSanction, nil, nil, nil); err != nil {
+	if _, err := casesSvc.ChangeStage(ctx, f.actor, f.caseID, cases.StageMove{ToStageID: underSanction}); err != nil {
 		t.Fatalf("missing document blocked the move: %v", err)
 	}
 	st, _ := f.svc.RequirementStatus(ctx, f.caseID)

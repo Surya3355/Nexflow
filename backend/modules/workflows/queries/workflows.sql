@@ -1,38 +1,38 @@
 -- name: ListBanks :many
-SELECT b.id, b.name, b.is_active,
+SELECT b.id, b.name, b.is_active, b.part_payments,
        EXISTS (SELECT 1 FROM stages s WHERE s.bank_id = b.id AND s.is_active)::boolean AS has_own_stages
 FROM banks b WHERE b.is_active ORDER BY b.name;
 
 -- name: RenameBank :one
 UPDATE banks SET name = $2, updated_at = now(), updated_by = $3
 WHERE id = $1
-RETURNING id, name, is_active;
+RETURNING id, name, is_active, part_payments;
 
 -- name: InsertBank :one
 INSERT INTO banks (name, created_by, updated_by)
 VALUES ($1, $2, $2)
-RETURNING id, name, is_active;
+RETURNING id, name, is_active, part_payments;
 
 -- name: ListStandardStages :many
-SELECT id, bank_id, code, name, sort_order, requires_document
+SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role
 FROM stages WHERE bank_id IS NULL AND is_active ORDER BY sort_order;
 
 -- name: ListStagesForBank :many
-SELECT id, bank_id, code, name, sort_order, requires_document
+SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role
 FROM stages WHERE bank_id = $1 AND is_active ORDER BY sort_order;
 
 -- name: InsertStage :one
 INSERT INTO stages (bank_id, code, name, sort_order, requires_document, created_by, updated_by)
 VALUES ($1, $2, $3, $4, $5, $6, $6)
-RETURNING id, bank_id, code, name, sort_order, requires_document;
+RETURNING id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role;
 
 -- name: SetStageRequiresDocument :one
 UPDATE stages SET requires_document = $2, updated_at = now(), updated_by = $3
 WHERE id = $1
-RETURNING id, bank_id, code, name, sort_order, requires_document;
+RETURNING id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role;
 
 -- name: GetStage :one
-SELECT id, bank_id, code, name, sort_order, requires_document FROM stages WHERE id = $1;
+SELECT id, bank_id, code, name, sort_order, requires_document, COALESCE(role, '')::text AS role FROM stages WHERE id = $1;
 
 -- name: ListDropdownValues :many
 SELECT id, category, value, sort_order FROM dropdown_values
@@ -85,3 +85,28 @@ WHERE id = $1 AND project_id = $2 AND removed_at IS NULL;
 
 -- name: ProjectExists :one
 SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1)::boolean;
+
+-- name: LockBank :one
+SELECT b.id, b.part_payments,
+       EXISTS (SELECT 1 FROM stages s WHERE s.bank_id = b.id)::boolean AS has_own_stages
+FROM banks b WHERE b.id = $1 FOR UPDATE OF b;
+
+-- name: InsertBankStage :one
+INSERT INTO stages (bank_id, code, name, sort_order, role, created_by, updated_by)
+VALUES ($1, $2, $3, $4, sqlc.narg('role'), $5, $5)
+RETURNING id;
+
+-- name: MoveBankCasesStage :exec
+UPDATE cases SET current_stage_id = sqlc.arg(to_stage_id), updated_at = now(), updated_by = sqlc.arg(updated_by)
+WHERE bank_id = sqlc.arg(bank_id) AND current_stage_id = sqlc.arg(from_stage_id);
+
+-- name: SetBankPartPayments :execrows
+UPDATE banks SET part_payments = $2, updated_at = now(), updated_by = $3 WHERE id = $1;
+
+-- name: GetBankPartPayments :one
+SELECT part_payments FROM banks WHERE id = $1;
+
+-- name: ListBanksWithOwnStages :many
+SELECT b.id, b.name FROM banks b
+WHERE EXISTS (SELECT 1 FROM stages s WHERE s.bank_id = b.id AND s.is_active)
+ORDER BY b.name;

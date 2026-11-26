@@ -12,10 +12,10 @@ func TestDuplicateTrackingNumberRefused(t *testing.T) {
 	ctx := context.Background()
 	first := newCase(t, f)
 	second := newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, first.ID, stageID(t, f, "logged_in"), tracking("DUP100"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, first.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("DUP100")}); err != nil {
 		t.Fatalf("first case: %v", err)
 	}
-	_, err := f.svc.ChangeStage(ctx, f.actor, second.ID, stageID(t, f, "logged_in"), tracking("DUP100"), nil, nil)
+	_, err := f.svc.ChangeStage(ctx, f.actor, second.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("DUP100")})
 	if !errors.Is(err, ErrDuplicateTracking) {
 		t.Fatalf("duplicate err = %v, want ErrDuplicateTracking", err)
 	}
@@ -24,7 +24,7 @@ func TestDuplicateTrackingNumberRefused(t *testing.T) {
 func TestTrackingNumberIsTrimmed(t *testing.T) {
 	f := newFixture(t)
 	c := newCase(t, f)
-	got, err := f.svc.ChangeStage(context.Background(), f.actor, c.ID, stageID(t, f, "logged_in"), tracking(" 12345 "), nil, nil)
+	got, err := f.svc.ChangeStage(context.Background(), f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking(" 12345 ")})
 	if err != nil {
 		t.Fatalf("ChangeStage: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestConcurrentDuplicateTrackingOneSucceeds(t *testing.T) {
 		wg.Add(1)
 		go func(i int, id int64) {
 			defer wg.Done()
-			_, errs[i] = f.svc.ChangeStage(ctx, f.actor, id, stageID(t, f, "logged_in"), tracking("RACE1"), nil, nil)
+			_, errs[i] = f.svc.ChangeStage(ctx, f.actor, id, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("RACE1")})
 		}(i, id)
 	}
 	wg.Wait()

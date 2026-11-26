@@ -49,7 +49,8 @@ func (h *handlers) listBanks(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(banks))
 	for _, b := range banks {
-		out = append(out, map[string]any{"id": b.ID, "name": b.Name, "has_own_stages": b.HasOwnStages})
+		out = append(out, map[string]any{"id": b.ID, "name": b.Name, "has_own_stages": b.HasOwnStages,
+			"part_payments": b.PartPayments, "stage_list": b.StageList})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -73,7 +74,7 @@ func stageList(stages []workflows.Stage) []map[string]any {
 	for _, s := range stages {
 		out = append(out, map[string]any{
 			"id": s.ID, "code": s.Code, "name": s.Name, "sort_order": s.SortOrder,
-			"requires_document": s.RequiresDocument,
+			"requires_document": s.RequiresDocument, "role": s.Role,
 		})
 	}
 	return out
@@ -168,6 +169,61 @@ func (h *handlers) createBank(w http.ResponseWriter, r *http.Request) {
 }
 
 // renameBank changes a bank's name (admin only).
+// updateBankSettings changes a bank's stage list and/or part payments. Admin only.
+func (h *handlers) updateBankSettings(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		badID(w)
+		return
+	}
+	var in struct {
+		StageList    *string `json:"stage_list"`
+		PartPayments *bool   `json:"part_payments"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.StageList != nil {
+		if err := h.d.Workflows.SetBankStageList(r.Context(), actor(r), id, *in.StageList); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if in.PartPayments != nil {
+		if err := h.d.Workflows.SetBankPartPayments(r.Context(), actor(r), id, *in.PartPayments); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if in.StageList == nil && in.PartPayments == nil && !access.Can(actor(r).Role, access.ActionManageConfig) {
+		writeError(w, access.ErrForbidden)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// stageLists returns every stage list for the admin Stages screen. Admin only.
+func (h *handlers) stageLists(w http.ResponseWriter, r *http.Request) {
+	if !access.Can(actor(r).Role, access.ActionManageConfig) {
+		writeError(w, access.ErrForbidden)
+		return
+	}
+	lists, err := h.d.Workflows.StageLists(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := make([]map[string]any, 0, len(lists))
+	for _, l := range lists {
+		var bank any
+		if l.BankID != nil {
+			bank = *l.BankID
+		}
+		out = append(out, map[string]any{"bank_id": bank, "name": l.Name, "stages": stageList(l.Stages)})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 func (h *handlers) renameBank(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
 	if !ok {
@@ -585,7 +641,85 @@ func (h *handlers) getCase(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, caseJSON(c))
+	h.writeCaseWithPayments(w, r, c)
+}
+
+// writeCaseWithPayments sends the case with its payments and totals (spec 2026-11-25 §5.4).
+func (h *handlers) writeCaseWithPayments(w http.ResponseWriter, r *http.Request, c cases.Case) {
+	sum, err := h.d.Cases.Payments(r.Context(), c.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := caseJSON(c)
+	pays := make([]map[string]any, 0, len(sum.Payments))
+	for _, p := range sum.Payments {
+		pays = append(pays, map[string]any{"id": p.ID, "amount": p.Amount, "paid_on": p.PaidOn.Format("2006-01-02"), "kind": p.Kind})
+	}
+	out["part_payments"] = c.PartPayments
+	out["payments"], out["total_paid"], out["remaining"] = pays, sum.TotalPaid, sum.Remaining
+	out["fully_paid"], out["over_paid"] = sum.FullyPaid, sum.OverPaid
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *handlers) addPayment(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		badID(w)
+		return
+	}
+	var in paymentIn
+	if !decode(w, r, &in) {
+		return
+	}
+	p, ok := toPayment(w, in)
+	if !ok {
+		return
+	}
+	c, err := h.d.Cases.AddPayment(r.Context(), actor(r), id, p)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	h.writeCaseWithPayments(w, r, c)
+}
+
+func (h *handlers) updatePayment(w http.ResponseWriter, r *http.Request) {
+	id, ok1 := pathID(r, "id")
+	pid, ok2 := pathID(r, "paymentID")
+	if !ok1 || !ok2 {
+		badID(w)
+		return
+	}
+	var in paymentIn
+	if !decode(w, r, &in) {
+		return
+	}
+	p, ok := toPayment(w, in)
+	if !ok {
+		return
+	}
+	c, err := h.d.Cases.UpdatePayment(r.Context(), actor(r), id, pid, p)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	h.writeCaseWithPayments(w, r, c)
+}
+
+func (h *handlers) deletePayment(w http.ResponseWriter, r *http.Request) {
+	id, ok1 := pathID(r, "id")
+	pid, ok2 := pathID(r, "paymentID")
+	if !ok1 || !ok2 {
+		badID(w)
+		return
+	}
+	c, err := h.d.Cases.DeletePayment(r.Context(), actor(r), id, pid)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	h.writeCaseWithPayments(w, r, c)
 }
 
 func (h *handlers) updateCase(w http.ResponseWriter, r *http.Request) {
@@ -622,9 +756,24 @@ type sanctionIn struct {
 	Date         string `json:"date"`
 }
 
-type disbursementIn struct {
+type paymentIn struct {
 	Amount string `json:"amount"`
 	Date   string `json:"date"`
+	Kind   string `json:"kind"`
+}
+
+// toPayment parses a payment body; ok is false after a 400 was written.
+func toPayment(w http.ResponseWriter, in paymentIn) (cases.PaymentInput, bool) {
+	d, err := parseDay(in.Date)
+	if err != nil {
+		badInput(w, "invalid payment date")
+		return cases.PaymentInput{}, false
+	}
+	p := cases.PaymentInput{Amount: in.Amount, Kind: in.Kind}
+	if d != nil {
+		p.Date = *d
+	}
+	return p, true
 }
 
 func (h *handlers) changeStage(w http.ResponseWriter, r *http.Request) {
@@ -637,7 +786,8 @@ func (h *handlers) changeStage(w http.ResponseWriter, r *http.Request) {
 		StageID        int64           `json:"stage_id"`
 		TrackingNumber *string         `json:"tracking_number"`
 		Sanction       *sanctionIn     `json:"sanction"`
-		Disbursement   *disbursementIn `json:"disbursement"`
+		Payment        *paymentIn      `json:"payment"`
+		Remark         string          `json:"remark"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -656,20 +806,15 @@ func (h *handlers) changeStage(w http.ResponseWriter, r *http.Request) {
 		}
 		sanction = &sd
 	}
-	var disb *cases.DisbursementDetails
-	if in.Disbursement != nil {
-		d, err := parseDay(in.Disbursement.Date)
-		if err != nil {
-			badInput(w, "invalid disbursement date")
+	m := cases.StageMove{ToStageID: in.StageID, TrackingNumber: in.TrackingNumber, Sanction: sanction, Remark: in.Remark}
+	if in.Payment != nil {
+		p, ok := toPayment(w, *in.Payment)
+		if !ok {
 			return
 		}
-		dd := cases.DisbursementDetails{Amount: in.Disbursement.Amount}
-		if d != nil {
-			dd.Date = *d
-		}
-		disb = &dd
+		m.Payment = &p
 	}
-	c, err := h.d.Cases.ChangeStage(r.Context(), actor(r), id, in.StageID, in.TrackingNumber, sanction, disb)
+	c, err := h.d.Cases.ChangeStage(r.Context(), actor(r), id, m)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -873,13 +1018,13 @@ func (h *handlers) documentLink(w http.ResponseWriter, r *http.Request) {
 
 // ---- reports --------------------------------------------------------------
 
-func (h *handlers) dashboard(w http.ResponseWriter, r *http.Request) {
-	now := time.Now()
+// reportPeriod parses from, to, bank_id and project_id; ok is false after a 400.
+func reportPeriod(w http.ResponseWriter, r *http.Request, now time.Time) (reports.Period, bool) {
 	from, err1 := parseDay(r.URL.Query().Get("from"))
 	to, err2 := parseDay(r.URL.Query().Get("to"))
 	if err1 != nil || err2 != nil {
 		badInput(w, "invalid period")
-		return
+		return reports.Period{}, false
 	}
 	p := reports.Period{From: now.AddDate(0, -1, 0), To: now.AddDate(0, 0, 1)}
 	if from != nil {
@@ -892,7 +1037,7 @@ func (h *handlers) dashboard(w http.ResponseWriter, r *http.Request) {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			badInput(w, "invalid bank")
-			return
+			return reports.Period{}, false
 		}
 		p.BankID = &n
 	}
@@ -900,9 +1045,18 @@ func (h *handlers) dashboard(w http.ResponseWriter, r *http.Request) {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			badInput(w, "invalid project")
-			return
+			return reports.Period{}, false
 		}
 		p.ProjectID = &n
+	}
+	return p, true
+}
+
+func (h *handlers) dashboard(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	p, ok := reportPeriod(w, r, now)
+	if !ok {
+		return
 	}
 	d, err := h.d.Reports.Dashboard(r.Context(), now, p)
 	if err != nil {
@@ -915,10 +1069,54 @@ func (h *handlers) dashboard(w http.ResponseWriter, r *http.Request) {
 		"new_customers":       d.NewCustomers,
 		"new_cases":           d.NewCases,
 		"stage_moves_today":   d.StageMovesToday,
-		"cases_by_stage":      d.CasesByStage,
+		"cases_by_stage":      stageTotalsJSON(d.CasesByStage),
 		"sanctions":           stageCountJSON(d.Sanctions),
 		"disbursements":       stageCountJSON(d.Disbursements),
 	})
+}
+
+func (h *handlers) disbursementRowsFor(w http.ResponseWriter, r *http.Request) ([]reports.DisbursementRow, bool) {
+	p, ok := reportPeriod(w, r, time.Now())
+	if !ok {
+		return nil, false
+	}
+	rows, err := h.d.Reports.DisbursementRows(r.Context(), p)
+	if err != nil {
+		writeError(w, err)
+		return nil, false
+	}
+	return rows, true
+}
+
+func (h *handlers) disbursementRows(w http.ResponseWriter, r *http.Request) {
+	rows, ok := h.disbursementRowsFor(w, r)
+	if !ok {
+		return
+	}
+	out := make([][]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Fields())
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"columns": reports.DisbursementHeader, "rows": out})
+}
+
+func (h *handlers) exportDisbursementsCSV(w http.ResponseWriter, r *http.Request) {
+	rows, ok := h.disbursementRowsFor(w, r)
+	if !ok {
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="nexflow-disbursements.csv"`)
+	_ = reports.ExportDisbursementsCSV(w, rows)
+}
+
+func stageTotalsJSON(ts []reports.StageTotal) []map[string]any {
+	out := make([]map[string]any, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, map[string]any{"bank_id": t.BankID, "bank_name": t.BankName, "stage_id": t.StageID,
+			"stage_code": t.StageCode, "stage_name": t.StageName, "sort_order": t.SortOrder, "total": t.Total})
+	}
+	return out
 }
 
 func stageCountJSON(s reports.StageCount) map[string]any {
@@ -980,7 +1178,7 @@ func (h *handlers) caseHistory(w http.ResponseWriter, r *http.Request) {
 	for _, e := range events {
 		out = append(out, map[string]any{
 			"id": e.ID, "reached_at": e.ReachedAt, "stage_code": e.StageCode,
-			"stage_name": e.StageName, "changed_by": e.ChangedBy,
+			"stage_name": e.StageName, "changed_by": e.ChangedBy, "remark": e.Remark,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

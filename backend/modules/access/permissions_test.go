@@ -20,6 +20,7 @@ func TestPermissionMatrix(t *testing.T) {
 		{ActionManageConfig, true, false, false},
 		{ActionManageUsers, true, false, false},
 		{ActionViewReports, true, true, true},
+		{ActionCorrectPayment, true, true, false},
 	}
 	for _, tc := range cases {
 		want := map[Role]bool{RoleAdmin: tc.admin, RoleManager: tc.manager, RoleEmployee: tc.employee}

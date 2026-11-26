@@ -214,4 +214,26 @@ describe("AddCaseDialog unit label", () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(bodyOf(spy, "POST /api/leads/9/case")).toMatchObject({ unit_number: "" });
   });
+
+  it("a bank on the HDFC stage list has no Start at choice and starts at its first stage", async () => {
+    const spy = mockApi({
+      "GET /api/config/banks": { body: [{ id: 1, name: "HDFC", stage_list: "hdfc", part_payments: true }, { id: 2, name: "SBI", stage_list: "standard" }] },
+      "GET /api/users": { body: [{ id: 2, full_name: "Anil", username: "anil" }] },
+      "GET /api/config/projects": { body: [{ id: 1, name: "NA", is_system: true, open_cases: 0, total_cases: 0 }] },
+      "POST /api/leads/9/case": { status: 201, body: saved },
+    });
+    const onSaved = vi.fn();
+    render(<AddCaseDialog open onClose={() => {}} onSaved={onSaved} customerName="Ravi Kumar" customerId={5}
+      fromLead={{ id: 9, projectId: 4, projectName: "Green Villas", assigneeId: 2, builderContactId: null }} />);
+    const dialog = screen.getByRole("dialog");
+    await within(dialog).findByRole("option", { name: "HDFC" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Bank for new case"), "2");
+    expect(within(dialog).getByLabelText("Start at")).toBeInTheDocument();
+    await userEvent.selectOptions(within(dialog).getByLabelText("Bank for new case"), "1");
+    expect(within(dialog).queryByLabelText("Start at")).not.toBeInTheDocument();
+    await userEvent.type(within(dialog).getByLabelText("Loan amount (₹)"), "100000");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Open case" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(bodyOf(spy, "POST /api/leads/9/case")).toMatchObject({ start_at: "", tracking_number: "" });
+  });
 });

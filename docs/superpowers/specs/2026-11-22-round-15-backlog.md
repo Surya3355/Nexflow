@@ -111,13 +111,13 @@ they appear nowhere on Home (only through search). Task 1 (leads) fixes this.
 - Queries are resolved with proof, so nothing is missed.
 - Owner will discuss this in detail when we do HDFC.
 
-### Task 10: HDFC stage list
+### Task 10: HDFC stage list (design: `2026-11-25-hdfc-stages-design.md`). **Built 2026-11-25.**
 
 - Add HDFC's own stages. Owner will provide them.
 
 ## Order
 
-Done: 1, 2 (2026-11-23), 4, 5, 3 (2026-11-24).
+Done: 1, 2 (2026-11-23), 4, 5, 3 (2026-11-24), 10 (2026-11-25).
 **Owner, 2026-11-24:** the HDFC work needs the bank's own flow first, so **Task 10 (HDFC stages) comes next**, then
 6 → 7 → 8 → 9 on top of it. Owner will provide the HDFC stage list.
 

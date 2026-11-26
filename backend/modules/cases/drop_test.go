@@ -57,7 +57,7 @@ func TestDropKeepsStageHistory(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	c := newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), tracking("DRP1"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("DRP1")}); err != nil {
 		t.Fatalf("stage: %v", err)
 	}
 	before := f.count(t, `SELECT count(*) FROM case_stage_events WHERE case_id=$1`, c.ID)
@@ -74,10 +74,10 @@ func TestDisbursedCaseCanBeDropped(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	c := newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), tracking("DRP2"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("DRP2")}); err != nil {
 		t.Fatalf("logged_in: %v", err)
 	}
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "disbursed"), nil, nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "disbursed"), Payment: &PaymentInput{Amount: "1000000", Kind: "full"}}); err != nil {
 		t.Fatalf("disbursed: %v", err)
 	}
 	got, err := f.svc.Drop(ctx, f.actor, c.ID, DropInput{ReasonID: reasonID(t, f, "Other"), Remark: "Closed after disbursement"})

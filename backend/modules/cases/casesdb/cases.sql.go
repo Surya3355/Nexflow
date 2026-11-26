@@ -28,11 +28,11 @@ func (q *Queries) ActiveContactInProject(ctx context.Context, arg ActiveContactI
 }
 
 const attentionCases = `-- name: AttentionCases :many
-SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id, lead_id, unit_number, builder_contact_id, customer_name, customer_mobile, bank_name, project_name, stage_name, stage_code, stage_order, stage_count, assignee_name, stage_since, needs_document FROM (
+SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id, lead_id, unit_number, builder_contact_id, customer_name, customer_mobile, bank_name, project_name, stage_name, stage_code, stage_role, stage_order, stage_count, assignee_name, stage_since, needs_document FROM (
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
        k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number, k.builder_contact_id,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
-       s.name AS stage_name, s.code AS stage_code,
+       s.name AS stage_name, s.code AS stage_code, COALESCE(s.role, '')::text AS stage_role,
        (SELECT count(*) FROM stages x
          WHERE x.is_active AND x.bank_id IS NOT DISTINCT FROM s.bank_id AND x.sort_order <= s.sort_order)::int AS stage_order,
        (SELECT count(*) FROM stages x
@@ -54,7 +54,7 @@ WHERE k.status = 'active'
   AND ($1::bigint IS NULL OR k.assignee_id = $1::bigint)
 ) r
 WHERE r.needs_document
-   OR (r.stage_since <= $2::timestamptz AND r.stage_code <> 'disbursed')
+   OR (r.stage_since <= $2::timestamptz AND r.stage_role <> 'disbursement')
 ORDER BY r.stage_since, r.id
 `
 
@@ -84,6 +84,7 @@ type AttentionCasesRow struct {
 	ProjectName      string
 	StageName        string
 	StageCode        string
+	StageRole        string
 	StageOrder       int32
 	StageCount       int32
 	AssigneeName     string
@@ -93,7 +94,7 @@ type AttentionCasesRow struct {
 
 // Active cases that need attention: the current stage requires a document and
 // none is uploaded, or the case reached its current stage on or before stuck_before
-// and that stage is not Disbursed. Oldest first.
+// and that stage is not the disbursement stage (a part-paid case can wait months). Oldest first.
 func (q *Queries) AttentionCases(ctx context.Context, arg AttentionCasesParams) ([]AttentionCasesRow, error) {
 	rows, err := q.db.Query(ctx, attentionCases, arg.AssigneeID, arg.StuckBefore)
 	if err != nil {
@@ -124,6 +125,7 @@ func (q *Queries) AttentionCases(ctx context.Context, arg AttentionCasesParams) 
 			&i.ProjectName,
 			&i.StageName,
 			&i.StageCode,
+			&i.StageRole,
 			&i.StageOrder,
 			&i.StageCount,
 			&i.AssigneeName,
@@ -151,8 +153,56 @@ func (q *Queries) BankExists(ctx context.Context, id int64) (bool, error) {
 	return exists, err
 }
 
+const casePaymentState = `-- name: CasePaymentState :one
+SELECT count(*)::bigint AS payments, (count(*) FILTER (WHERE kind = 'full') > 0)::boolean AS fully_paid
+FROM case_disbursements WHERE case_id = $1
+`
+
+type CasePaymentStateRow struct {
+	Payments  int64
+	FullyPaid bool
+}
+
+func (q *Queries) CasePaymentState(ctx context.Context, caseID int64) (CasePaymentStateRow, error) {
+	row := q.db.QueryRow(ctx, casePaymentState, caseID)
+	var i CasePaymentStateRow
+	err := row.Scan(&i.Payments, &i.FullyPaid)
+	return i, err
+}
+
+const casePaymentTotals = `-- name: CasePaymentTotals :one
+SELECT COALESCE(sum(d.amount), 0)::numeric(14,2)::text AS total_paid,
+       GREATEST(COALESCE(c.sanctioned_amount, c.loan_amount) - COALESCE(sum(d.amount), 0), 0)::numeric(14,2)::text AS remaining,
+       (COALESCE(sum(d.amount), 0) > COALESCE(c.sanctioned_amount, c.loan_amount))::boolean AS over_paid,
+       (count(*) FILTER (WHERE d.kind = 'full') > 0)::boolean AS fully_paid
+FROM cases c LEFT JOIN case_disbursements d ON d.case_id = c.id
+WHERE c.id = $1
+GROUP BY c.id
+`
+
+type CasePaymentTotalsRow struct {
+	TotalPaid string
+	Remaining string
+	OverPaid  bool
+	FullyPaid bool
+}
+
+// Remaining is worked out from the sanctioned amount, else the loan amount (spec §5.4).
+func (q *Queries) CasePaymentTotals(ctx context.Context, id int64) (CasePaymentTotalsRow, error) {
+	row := q.db.QueryRow(ctx, casePaymentTotals, id)
+	var i CasePaymentTotalsRow
+	err := row.Scan(
+		&i.TotalPaid,
+		&i.Remaining,
+		&i.OverPaid,
+		&i.FullyPaid,
+	)
+	return i, err
+}
+
 const caseStageHistory = `-- name: CaseStageHistory :many
-SELECT e.id, e.reached_at, s.code AS stage_code, s.name AS stage_name, u.full_name AS changed_by_name
+SELECT e.id, e.reached_at, s.code AS stage_code, s.name AS stage_name, u.full_name AS changed_by_name,
+       COALESCE(e.remark, '')::text AS remark
 FROM case_stage_events e
 JOIN stages s ON s.id = e.stage_id
 JOIN users u ON u.id = e.changed_by
@@ -166,6 +216,7 @@ type CaseStageHistoryRow struct {
 	StageCode     string
 	StageName     string
 	ChangedByName string
+	Remark        string
 }
 
 func (q *Queries) CaseStageHistory(ctx context.Context, caseID int64) ([]CaseStageHistoryRow, error) {
@@ -183,6 +234,7 @@ func (q *Queries) CaseStageHistory(ctx context.Context, caseID int64) ([]CaseSta
 			&i.StageCode,
 			&i.StageName,
 			&i.ChangedByName,
+			&i.Remark,
 		); err != nil {
 			return nil, err
 		}
@@ -192,6 +244,17 @@ func (q *Queries) CaseStageHistory(ctx context.Context, caseID int64) ([]CaseSta
 		return nil, err
 	}
 	return items, nil
+}
+
+const caseStageRole = `-- name: CaseStageRole :one
+SELECT COALESCE(s.role, '')::text FROM cases c JOIN stages s ON s.id = c.current_stage_id WHERE c.id = $1
+`
+
+func (q *Queries) CaseStageRole(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, caseStageRole, id)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const casesForCustomer = `-- name: CasesForCustomer :many
@@ -284,6 +347,20 @@ func (q *Queries) CustomerSummary(ctx context.Context, id int64) (CustomerSummar
 		&i.Status,
 	)
 	return i, err
+}
+
+const deleteCasePayment = `-- name: DeleteCasePayment :exec
+DELETE FROM case_disbursements WHERE id = $1 AND case_id = $2
+`
+
+type DeleteCasePaymentParams struct {
+	ID     int64
+	CaseID int64
+}
+
+func (q *Queries) DeleteCasePayment(ctx context.Context, arg DeleteCasePaymentParams) error {
+	_, err := q.db.Exec(ctx, deleteCasePayment, arg.ID, arg.CaseID)
+	return err
 }
 
 const dropCase = `-- name: DropCase :exec
@@ -379,6 +456,34 @@ func (q *Queries) GetCase(ctx context.Context, id int64) (GetCaseRow, error) {
 		&i.LeadID,
 		&i.UnitNumber,
 		&i.BuilderContactID,
+	)
+	return i, err
+}
+
+const getCasePayment = `-- name: GetCasePayment :one
+SELECT id, amount::text AS amount, paid_on, kind FROM case_disbursements WHERE id = $1 AND case_id = $2
+`
+
+type GetCasePaymentParams struct {
+	ID     int64
+	CaseID int64
+}
+
+type GetCasePaymentRow struct {
+	ID     int64
+	Amount string
+	PaidOn pgtype.Date
+	Kind   string
+}
+
+func (q *Queries) GetCasePayment(ctx context.Context, arg GetCasePaymentParams) (GetCasePaymentRow, error) {
+	row := q.db.QueryRow(ctx, getCasePayment, arg.ID, arg.CaseID)
+	var i GetCasePaymentRow
+	err := row.Scan(
+		&i.ID,
+		&i.Amount,
+		&i.PaidOn,
+		&i.Kind,
 	)
 	return i, err
 }
@@ -498,6 +603,33 @@ func (q *Queries) InsertCaseAssignmentEventAt(ctx context.Context, arg InsertCas
 	return err
 }
 
+const insertCaseDisbursement = `-- name: InsertCaseDisbursement :one
+INSERT INTO case_disbursements (case_id, amount, paid_on, kind, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $5)
+RETURNING id
+`
+
+type InsertCaseDisbursementParams struct {
+	CaseID    int64
+	Amount    pgtype.Numeric
+	PaidOn    pgtype.Date
+	Kind      string
+	CreatedBy pgtype.Int8
+}
+
+func (q *Queries) InsertCaseDisbursement(ctx context.Context, arg InsertCaseDisbursementParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertCaseDisbursement,
+		arg.CaseID,
+		arg.Amount,
+		arg.PaidOn,
+		arg.Kind,
+		arg.CreatedBy,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertCaseStageEvent = `-- name: InsertCaseStageEvent :exec
 INSERT INTO case_stage_events (case_id, stage_id, reached_at, changed_by)
 VALUES ($1, $2, $3, $4)
@@ -521,8 +653,8 @@ func (q *Queries) InsertCaseStageEvent(ctx context.Context, arg InsertCaseStageE
 }
 
 const insertCaseStageEventAt = `-- name: InsertCaseStageEventAt :exec
-INSERT INTO case_stage_events (case_id, stage_id, reached_at, changed_by)
-VALUES ($1, $2, $3, $4)
+INSERT INTO case_stage_events (case_id, stage_id, reached_at, changed_by, remark)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type InsertCaseStageEventAtParams struct {
@@ -530,6 +662,7 @@ type InsertCaseStageEventAtParams struct {
 	StageID   int64
 	ReachedAt pgtype.Timestamptz
 	ChangedBy int64
+	Remark    pgtype.Text
 }
 
 func (q *Queries) InsertCaseStageEventAt(ctx context.Context, arg InsertCaseStageEventAtParams) error {
@@ -538,15 +671,57 @@ func (q *Queries) InsertCaseStageEventAt(ctx context.Context, arg InsertCaseStag
 		arg.StageID,
 		arg.ReachedAt,
 		arg.ChangedBy,
+		arg.Remark,
 	)
 	return err
+}
+
+const listCasePayments = `-- name: ListCasePayments :many
+SELECT id, amount::text AS amount, paid_on, kind, created_by, created_at
+FROM case_disbursements WHERE case_id = $1 ORDER BY paid_on, id
+`
+
+type ListCasePaymentsRow struct {
+	ID        int64
+	Amount    string
+	PaidOn    pgtype.Date
+	Kind      string
+	CreatedBy pgtype.Int8
+	CreatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) ListCasePayments(ctx context.Context, caseID int64) ([]ListCasePaymentsRow, error) {
+	rows, err := q.db.Query(ctx, listCasePayments, caseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCasePaymentsRow
+	for rows.Next() {
+		var i ListCasePaymentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Amount,
+			&i.PaidOn,
+			&i.Kind,
+			&i.CreatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCaseRows = `-- name: ListCaseRows :many
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
        k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number, k.builder_contact_id,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
-       s.name AS stage_name, s.code AS stage_code,
+       s.name AS stage_name, s.code AS stage_code, COALESCE(s.role, '')::text AS stage_role,
        (SELECT count(*) FROM stages x
          WHERE x.is_active AND x.bank_id IS NOT DISTINCT FROM s.bank_id AND x.sort_order <= s.sort_order)::int AS stage_order,
        (SELECT count(*) FROM stages x
@@ -605,6 +780,7 @@ type ListCaseRowsRow struct {
 	ProjectName      string
 	StageName        string
 	StageCode        string
+	StageRole        string
 	StageOrder       int32
 	StageCount       int32
 	AssigneeName     string
@@ -652,6 +828,7 @@ func (q *Queries) ListCaseRows(ctx context.Context, arg ListCaseRowsParams) ([]L
 			&i.ProjectName,
 			&i.StageName,
 			&i.StageCode,
+			&i.StageRole,
 			&i.StageOrder,
 			&i.StageCount,
 			&i.AssigneeName,
@@ -752,7 +929,7 @@ func (q *Queries) ListCases(ctx context.Context, arg ListCasesParams) ([]ListCas
 }
 
 const lockCase = `-- name: LockCase :one
-SELECT id, customer_id, bank_id, current_stage_id, status, tracking_number, assignee_id, project_id, builder_contact_id
+SELECT id, customer_id, bank_id, current_stage_id, status, tracking_number, assignee_id, project_id, builder_contact_id, loan_amount
 FROM cases WHERE id = $1 FOR UPDATE
 `
 
@@ -766,6 +943,7 @@ type LockCaseRow struct {
 	AssigneeID       int64
 	ProjectID        int64
 	BuilderContactID pgtype.Int8
+	LoanAmount       pgtype.Numeric
 }
 
 func (q *Queries) LockCase(ctx context.Context, id int64) (LockCaseRow, error) {
@@ -781,6 +959,7 @@ func (q *Queries) LockCase(ctx context.Context, id int64) (LockCaseRow, error) {
 		&i.AssigneeID,
 		&i.ProjectID,
 		&i.BuilderContactID,
+		&i.LoanAmount,
 	)
 	return i, err
 }
@@ -931,29 +1110,6 @@ func (q *Queries) SetCaseBuilderContact(ctx context.Context, arg SetCaseBuilderC
 	return err
 }
 
-const setCaseDisbursement = `-- name: SetCaseDisbursement :exec
-UPDATE cases
-SET disbursed_amount = $2, disbursement_date = $3, updated_at = now(), updated_by = $4
-WHERE id = $1
-`
-
-type SetCaseDisbursementParams struct {
-	ID               int64
-	DisbursedAmount  pgtype.Numeric
-	DisbursementDate pgtype.Date
-	UpdatedBy        pgtype.Int8
-}
-
-func (q *Queries) SetCaseDisbursement(ctx context.Context, arg SetCaseDisbursementParams) error {
-	_, err := q.db.Exec(ctx, setCaseDisbursement,
-		arg.ID,
-		arg.DisbursedAmount,
-		arg.DisbursementDate,
-		arg.UpdatedBy,
-	)
-	return err
-}
-
 const setCaseDocumentsPurgeAfter = `-- name: SetCaseDocumentsPurgeAfter :exec
 UPDATE documents SET purge_after = $2 WHERE case_id = $1 AND purge_after IS NULL
 `
@@ -970,7 +1126,7 @@ func (q *Queries) SetCaseDocumentsPurgeAfter(ctx context.Context, arg SetCaseDoc
 
 const setCaseSanction = `-- name: SetCaseSanction :exec
 UPDATE cases
-SET sanctioned_amount = $2, interest_rate = $3, interest_type = $4,
+SET sanctioned_amount = $2, loan_amount = $2, interest_rate = $3, interest_type = $4,
     tenure_months = $5, sanction_date = $6, updated_at = now(), updated_by = $7
 WHERE id = $1
 `
@@ -1027,6 +1183,21 @@ func (q *Queries) SetCaseStage(ctx context.Context, arg SetCaseStageParams) erro
 	return err
 }
 
+const setCaseStatus = `-- name: SetCaseStatus :exec
+UPDATE cases SET status = $2, updated_at = now(), updated_by = $3 WHERE id = $1
+`
+
+type SetCaseStatusParams struct {
+	ID        int64
+	Status    string
+	UpdatedBy pgtype.Int8
+}
+
+func (q *Queries) SetCaseStatus(ctx context.Context, arg SetCaseStatusParams) error {
+	_, err := q.db.Exec(ctx, setCaseStatus, arg.ID, arg.Status, arg.UpdatedBy)
+	return err
+}
+
 const setCaseUnit = `-- name: SetCaseUnit :exec
 UPDATE cases SET unit_number = $2, updated_at = now(), updated_by = $3 WHERE id = $1
 `
@@ -1043,22 +1214,52 @@ func (q *Queries) SetCaseUnit(ctx context.Context, arg SetCaseUnitParams) error 
 }
 
 const updateCaseFields = `-- name: UpdateCaseFields :exec
-UPDATE cases SET loan_amount = $2, follow_up_date = $3, updated_at = now(), updated_by = $4
-WHERE id = $1
+UPDATE cases SET loan_amount = $1::numeric(14,2),
+       sanctioned_amount = CASE WHEN sanctioned_amount IS NULL THEN NULL ELSE $1::numeric(14,2) END,
+       follow_up_date = $2, updated_at = now(), updated_by = $3
+WHERE id = $4
 `
 
 type UpdateCaseFieldsParams struct {
-	ID           int64
 	LoanAmount   pgtype.Numeric
 	FollowUpDate pgtype.Date
 	UpdatedBy    pgtype.Int8
+	ID           int64
 }
 
+// Once sanctioned, the loan amount is the sanctioned amount (spec 2026-11-25 §5.3),
+// so an edit moves both and Remaining follows the amount shown.
 func (q *Queries) UpdateCaseFields(ctx context.Context, arg UpdateCaseFieldsParams) error {
 	_, err := q.db.Exec(ctx, updateCaseFields,
-		arg.ID,
 		arg.LoanAmount,
 		arg.FollowUpDate,
+		arg.UpdatedBy,
+		arg.ID,
+	)
+	return err
+}
+
+const updateCasePayment = `-- name: UpdateCasePayment :exec
+UPDATE case_disbursements SET amount = $3, paid_on = $4, kind = $5, updated_at = now(), updated_by = $6
+WHERE id = $1 AND case_id = $2
+`
+
+type UpdateCasePaymentParams struct {
+	ID        int64
+	CaseID    int64
+	Amount    pgtype.Numeric
+	PaidOn    pgtype.Date
+	Kind      string
+	UpdatedBy pgtype.Int8
+}
+
+func (q *Queries) UpdateCasePayment(ctx context.Context, arg UpdateCasePaymentParams) error {
+	_, err := q.db.Exec(ctx, updateCasePayment,
+		arg.ID,
+		arg.CaseID,
+		arg.Amount,
+		arg.PaidOn,
+		arg.Kind,
 		arg.UpdatedBy,
 	)
 	return err

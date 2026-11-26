@@ -12,14 +12,16 @@ import (
 )
 
 const casesByStage = `-- name: CasesByStage :many
-SELECT s.code, count(c.id)::bigint AS total
+SELECT b.id AS bank_id, b.name AS bank_name, s.id AS stage_id, s.code AS stage_code, s.name AS stage_name,
+       s.sort_order, count(c.id)::bigint AS total
 FROM cases c
 JOIN stages s ON s.id = c.current_stage_id
+JOIN banks b ON b.id = c.bank_id
 WHERE c.status <> 'dropped'
   AND ($1::bigint IS NULL OR c.bank_id = $1::bigint)
   AND ($2::bigint IS NULL OR c.project_id = $2::bigint)
-GROUP BY s.code
-ORDER BY s.code
+GROUP BY b.id, b.name, s.id, s.code, s.name, s.sort_order
+ORDER BY b.name, b.id, s.sort_order
 `
 
 type CasesByStageParams struct {
@@ -28,10 +30,16 @@ type CasesByStageParams struct {
 }
 
 type CasesByStageRow struct {
-	Code  string
-	Total int64
+	BankID    int64
+	BankName  string
+	StageID   int64
+	StageCode string
+	StageName string
+	SortOrder int32
+	Total     int64
 }
 
+// Open cases per bank and current stage; each bank's own stages in order.
 func (q *Queries) CasesByStage(ctx context.Context, arg CasesByStageParams) ([]CasesByStageRow, error) {
 	rows, err := q.db.Query(ctx, casesByStage, arg.BankID, arg.ProjectID)
 	if err != nil {
@@ -41,7 +49,15 @@ func (q *Queries) CasesByStage(ctx context.Context, arg CasesByStageParams) ([]C
 	var items []CasesByStageRow
 	for rows.Next() {
 		var i CasesByStageRow
-		if err := rows.Scan(&i.Code, &i.Total); err != nil {
+		if err := rows.Scan(
+			&i.BankID,
+			&i.BankName,
+			&i.StageID,
+			&i.StageCode,
+			&i.StageName,
+			&i.SortOrder,
+			&i.Total,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -96,9 +112,8 @@ func (q *Queries) CountNewCustomers(ctx context.Context, arg CountNewCustomersPa
 
 const countStageMoves = `-- name: CountStageMoves :one
 SELECT count(*) FROM case_stage_events e
-JOIN stages s ON s.id = e.stage_id
 JOIN cases c ON c.id = e.case_id
-WHERE s.code <> 'received'
+WHERE e.id <> (SELECT min(f.id) FROM case_stage_events f WHERE f.case_id = e.case_id)
   AND e.reached_at >= $1::timestamptz AND e.reached_at < $2::timestamptz
   AND ($3::bigint IS NULL OR c.bank_id = $3::bigint)
   AND ($4::bigint IS NULL OR c.project_id = $4::bigint)
@@ -111,7 +126,7 @@ type CountStageMovesParams struct {
 	ProjectID pgtype.Int8
 }
 
-// Stage moves in a range: every stage event except the Received event a case opens with.
+// Stage moves in a range: every stage event except each case's first, the stage it opened at.
 func (q *Queries) CountStageMoves(ctx context.Context, arg CountStageMovesParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countStageMoves,
 		arg.FromTs,
@@ -122,6 +137,146 @@ func (q *Queries) CountStageMoves(ctx context.Context, arg CountStageMovesParams
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const disbursementHits = `-- name: DisbursementHits :one
+WITH hits AS (
+  SELECT c.id, c.status, sum(d.amount) AS amt
+  FROM case_disbursements d
+  JOIN cases c ON c.id = d.case_id
+  WHERE d.paid_on >= ($1::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    AND d.paid_on <= (($2::timestamptz - interval '1 microsecond') AT TIME ZONE 'Asia/Kolkata')::date
+    AND ($3::bigint IS NULL OR c.bank_id = $3::bigint)
+    AND ($4::bigint IS NULL OR c.project_id = $4::bigint)
+  GROUP BY c.id, c.status
+)
+SELECT count(*)::bigint AS cases,
+       count(*) FILTER (WHERE status = 'dropped')::bigint AS dropped,
+       COALESCE(sum(amt), 0)::numeric(14,2)::text AS amount
+FROM hits
+`
+
+type DisbursementHitsParams struct {
+	FromTs    pgtype.Timestamptz
+	ToTs      pgtype.Timestamptz
+	BankID    pgtype.Int8
+	ProjectID pgtype.Int8
+}
+
+type DisbursementHitsRow struct {
+	Cases   int64
+	Dropped int64
+	Amount  string
+}
+
+// Cases with at least one payment in the period; amount is the sum of those payments.
+func (q *Queries) DisbursementHits(ctx context.Context, arg DisbursementHitsParams) (DisbursementHitsRow, error) {
+	row := q.db.QueryRow(ctx, disbursementHits,
+		arg.FromTs,
+		arg.ToTs,
+		arg.BankID,
+		arg.ProjectID,
+	)
+	var i DisbursementHitsRow
+	err := row.Scan(&i.Cases, &i.Dropped, &i.Amount)
+	return i, err
+}
+
+const disbursementRows = `-- name: DisbursementRows :many
+WITH period AS (
+  SELECT d.case_id, sum(d.amount) AS paid_in_period
+  FROM case_disbursements d
+  WHERE d.paid_on >= ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    AND d.paid_on <= (($4::timestamptz - interval '1 microsecond') AT TIME ZONE 'Asia/Kolkata')::date
+  GROUP BY d.case_id
+), totals AS (
+  SELECT d.case_id, sum(d.amount) AS total_paid, max(d.paid_on) AS last_paid_on,
+         bool_or(d.kind = 'full') AS fully_paid
+  FROM case_disbursements d WHERE d.case_id IN (SELECT case_id FROM period)
+  GROUP BY d.case_id
+)
+SELECT k.id, cu.name AS customer_name, cu.mobile, b.name AS bank_name, p.name AS project_name,
+       COALESCE(k.tracking_number, '')::text AS tracking_number, u.full_name AS assignee_name, k.status,
+       pe.paid_in_period::numeric(14,2)::text AS paid_in_period,
+       t.total_paid::numeric(14,2)::text AS total_paid,
+       COALESCE(k.sanctioned_amount, k.loan_amount)::numeric(14,2)::text AS sanctioned,
+       GREATEST(COALESCE(k.sanctioned_amount, k.loan_amount) - t.total_paid, 0)::numeric(14,2)::text AS remaining,
+       t.last_paid_on::text AS last_paid_on, t.fully_paid
+FROM period pe
+JOIN totals t ON t.case_id = pe.case_id
+JOIN cases k ON k.id = pe.case_id
+JOIN customers cu ON cu.id = k.customer_id
+JOIN banks b ON b.id = k.bank_id
+JOIN projects p ON p.id = k.project_id
+JOIN users u ON u.id = k.assignee_id
+WHERE ($1::bigint IS NULL OR k.bank_id = $1::bigint)
+  AND ($2::bigint IS NULL OR k.project_id = $2::bigint)
+ORDER BY t.last_paid_on DESC, k.id DESC
+`
+
+type DisbursementRowsParams struct {
+	BankID    pgtype.Int8
+	ProjectID pgtype.Int8
+	FromTs    pgtype.Timestamptz
+	ToTs      pgtype.Timestamptz
+}
+
+type DisbursementRowsRow struct {
+	ID             int64
+	CustomerName   string
+	Mobile         string
+	BankName       string
+	ProjectName    string
+	TrackingNumber string
+	AssigneeName   string
+	Status         string
+	PaidInPeriod   string
+	TotalPaid      string
+	Sanctioned     string
+	Remaining      string
+	LastPaidOn     string
+	FullyPaid      bool
+}
+
+// One row per case with a payment in the period (owner: never one row per payment).
+func (q *Queries) DisbursementRows(ctx context.Context, arg DisbursementRowsParams) ([]DisbursementRowsRow, error) {
+	rows, err := q.db.Query(ctx, disbursementRows,
+		arg.BankID,
+		arg.ProjectID,
+		arg.FromTs,
+		arg.ToTs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DisbursementRowsRow
+	for rows.Next() {
+		var i DisbursementRowsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CustomerName,
+			&i.Mobile,
+			&i.BankName,
+			&i.ProjectName,
+			&i.TrackingNumber,
+			&i.AssigneeName,
+			&i.Status,
+			&i.PaidInPeriod,
+			&i.TotalPaid,
+			&i.Sanctioned,
+			&i.Remaining,
+			&i.LastPaidOn,
+			&i.FullyPaid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const reportRows = `-- name: ReportRows :many
@@ -209,51 +364,48 @@ func (q *Queries) ReportRows(ctx context.Context, arg ReportRowsParams) ([]Repor
 	return items, nil
 }
 
-const stageHits = `-- name: StageHits :one
+const sanctionHits = `-- name: SanctionHits :one
 WITH hits AS (
-  SELECT DISTINCT ON (c.id) c.id, c.status,
-         CASE WHEN $1::text = 'sanctioned' THEN c.sanctioned_amount ELSE c.disbursed_amount END AS amt
+  SELECT DISTINCT ON (c.id) c.id, c.status, c.sanctioned_amount AS amt
   FROM case_stage_events e
   JOIN stages s ON s.id = e.stage_id
   JOIN cases c ON c.id = e.case_id
-  WHERE s.code = $1::text
-    AND e.reached_at >= $2::timestamptz
-    AND e.reached_at < $3::timestamptz
-    AND ($4::bigint IS NULL OR c.bank_id = $4::bigint)
-    AND ($5::bigint IS NULL OR c.project_id = $5::bigint)
+  WHERE s.role = 'sanction'
+    AND e.reached_at >= $1::timestamptz
+    AND e.reached_at < $2::timestamptz
+    AND ($3::bigint IS NULL OR c.bank_id = $3::bigint)
+    AND ($4::bigint IS NULL OR c.project_id = $4::bigint)
   ORDER BY c.id
 )
 SELECT count(*)::bigint AS cases,
        count(*) FILTER (WHERE status = 'dropped')::bigint AS dropped,
-       COALESCE(sum(amt), 0)::text AS amount
+       COALESCE(sum(amt), 0)::numeric(14,2)::text AS amount
 FROM hits
 `
 
-type StageHitsParams struct {
-	StageCode string
+type SanctionHitsParams struct {
 	FromTs    pgtype.Timestamptz
 	ToTs      pgtype.Timestamptz
 	BankID    pgtype.Int8
 	ProjectID pgtype.Int8
 }
 
-type StageHitsRow struct {
+type SanctionHitsRow struct {
 	Cases   int64
 	Dropped int64
 	Amount  string
 }
 
-// Distinct cases that reached the stage (sanctioned or disbursed) in the period.
-// Amount is the sanctioned or disbursed amount of the case; dropped cases still count.
-func (q *Queries) StageHits(ctx context.Context, arg StageHitsParams) (StageHitsRow, error) {
-	row := q.db.QueryRow(ctx, stageHits,
-		arg.StageCode,
+// Distinct cases that reached a sanction-role stage in the period, any bank.
+// Amount is the sanctioned amount; dropped cases still count (O8).
+func (q *Queries) SanctionHits(ctx context.Context, arg SanctionHitsParams) (SanctionHitsRow, error) {
+	row := q.db.QueryRow(ctx, sanctionHits,
 		arg.FromTs,
 		arg.ToTs,
 		arg.BankID,
 		arg.ProjectID,
 	)
-	var i StageHitsRow
+	var i SanctionHitsRow
 	err := row.Scan(&i.Cases, &i.Dropped, &i.Amount)
 	return i, err
 }

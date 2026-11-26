@@ -8,12 +8,21 @@ import { bodyOf, mockApi } from "../test/fetchMock";
 afterEach(() => vi.restoreAllMocks());
 
 const standard = [
-  { id: 1, code: "received", name: "Received", sort_order: 1, requires_document: false },
-  { id: 2, code: "logged_in", name: "Logged in", sort_order: 2, requires_document: false },
-  { id: 3, code: "under_sanction", name: "Under sanction", sort_order: 3, requires_document: false },
-  { id: 4, code: "sanctioned", name: "Sanctioned", sort_order: 4, requires_document: true },
-  { id: 5, code: "documentation", name: "Documentation", sort_order: 5, requires_document: false },
-  { id: 6, code: "disbursed", name: "Disbursed", sort_order: 6, requires_document: false },
+  { id: 1, code: "received", name: "Received", sort_order: 1, requires_document: false, role: "start" },
+  { id: 2, code: "logged_in", name: "Logged in", sort_order: 2, requires_document: false, role: "tracking" },
+  { id: 3, code: "under_sanction", name: "Under sanction", sort_order: 3, requires_document: false, role: "" },
+  { id: 4, code: "sanctioned", name: "Sanctioned", sort_order: 4, requires_document: true, role: "sanction" },
+  { id: 5, code: "documentation", name: "Documentation", sort_order: 5, requires_document: false, role: "" },
+  { id: 6, code: "disbursed", name: "Disbursed", sort_order: 6, requires_document: false, role: "disbursement" },
+];
+
+/** HDFC's list, trimmed: the codes differ, the roles drive the forms. */
+const hdfcStages = [
+  { id: 31, code: "link_sent", name: "Link sent", sort_order: 2, requires_document: false, role: "start" },
+  { id: 32, code: "application_submitted", name: "Application submitted", sort_order: 3, requires_document: false, role: "tracking" },
+  { id: 36, code: "sanctioned", name: "Sanctioned", sort_order: 6, requires_document: false, role: "sanction" },
+  { id: 40, code: "signing", name: "Signing", sort_order: 10, requires_document: false, role: "" },
+  { id: 41, code: "disbursement", name: "Disbursement", sort_order: 11, requires_document: false, role: "disbursement" },
 ];
 
 const aCase: Record<string, unknown> & { id: number } = {
@@ -32,7 +41,7 @@ const customer = {
   cases: [{ ...aCase, bank_name: "HDFC", project_name: "NA", assignee_name: "Asha", customer_name: "Ravi Kumar" }],
 };
 
-function renderCase(routes: Record<string, { status?: number; body?: unknown }>, stages = standard, theCase = aCase) {
+function renderCase(routes: Record<string, { status?: number; body?: unknown }>, stages: unknown[] = standard, theCase = aCase, role: "admin" | "manager" | "employee" = "employee") {
   const spy = mockApi({
     "GET /api/cases/11": { body: theCase },
     "GET /api/cases/11/history": { body: history },
@@ -46,7 +55,7 @@ function renderCase(routes: Record<string, { status?: number; body?: unknown }>,
   });
   render(
     <MemoryRouter initialEntries={["/cases/11"]}>
-      <Routes><Route path="/cases/:id" element={<CaseDetail />} /></Routes>
+      <Routes><Route path="/cases/:id" element={<CaseDetail role={role} />} /></Routes>
     </MemoryRouter>,
   );
   return spy;
@@ -201,17 +210,102 @@ describe("CaseDetail", () => {
     }));
   });
 
-  it("asks for disbursed amount and date when the case moves to Disbursed", async () => {
+  it("asks for the payment when the case moves to Disbursed; a bank without part payments sends Full", async () => {
     const spy = renderCase({ "POST /api/cases/11/stage": { body: { ...aCase, current_stage_id: 6, status: "completed" } } }, standard, { ...aCase, current_stage_id: 5 });
     await userEvent.click(await ready());
     const dialog = screen.getByRole("dialog", { name: "Move to Disbursed" });
-    const date = within(dialog).getByLabelText("Disbursement date");
+    expect(within(dialog).queryByRole("radio", { name: "Part" })).not.toBeInTheDocument();
+    const date = within(dialog).getByLabelText("Payment date");
     await userEvent.clear(date);
     await userEvent.type(date, "2026-11-18");
     await userEvent.click(within(dialog).getByRole("button", { name: "Confirm move" }));
     await waitFor(() => expect(bodyOf(spy, "POST /api/cases/11/stage")).toEqual({
-      stage_id: 6, disbursement: { amount: "2500000.00", date: "2026-11-18" },
+      stage_id: 6, payment: { amount: "2500000.00", date: "2026-11-18", kind: "full" },
     }));
+  });
+
+  it("HDFC: a part payment at Disbursement, chosen with the Part option", async () => {
+    const hdfc = { ...aCase, current_stage_id: 40, part_payments: true, loan_amount: "3500000.00" };
+    const spy = renderCase({ "POST /api/cases/11/stage": { body: { ...hdfc, current_stage_id: 41 } } }, hdfcStages, hdfc);
+    await userEvent.click(await ready());
+    const dialog = screen.getByRole("dialog", { name: "Move to Disbursement" });
+    await userEvent.click(within(dialog).getByRole("radio", { name: "Part" }));
+    const amount = within(dialog).getByLabelText("Amount paid (₹)");
+    await userEvent.clear(amount);
+    await userEvent.type(amount, "1000000");
+    const date = within(dialog).getByLabelText("Payment date");
+    await userEvent.clear(date);
+    await userEvent.type(date, "2026-11-05");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm move" }));
+    await waitFor(() => expect(bodyOf(spy, "POST /api/cases/11/stage")).toEqual({
+      stage_id: 41, payment: { amount: "1000000", date: "2026-11-05", kind: "part" },
+    }));
+  });
+
+  it("moving back into Disbursement with payments already made does not prefill another payment", async () => {
+    const hdfc = { ...aCase, current_stage_id: 40, part_payments: true, remaining: "2500000.00",
+      payments: [{ id: 1, amount: "1000000.00", paid_on: "2026-11-05", kind: "part" }], total_paid: "1000000.00", fully_paid: false, over_paid: false };
+    const spy = renderCase({ "POST /api/cases/11/stage": { body: { ...hdfc, current_stage_id: 41 } } }, hdfcStages, hdfc);
+    await userEvent.click(await ready());
+    const dialog = screen.getByRole("dialog", { name: "Move to Disbursement" });
+    expect(within(dialog).getByLabelText("Amount paid (₹)")).toHaveValue("");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm move" }));
+    await waitFor(() => expect(bodyOf(spy, "POST /api/cases/11/stage")).toEqual({ stage_id: 41 }));
+  });
+
+  it("double tap on Confirm move sends one request", async () => {
+    let release: () => void = () => {};
+    const spy = renderCase({ "POST /api/cases/11/stage": { body: { ...aCase, current_stage_id: 2 } } }, standard, { ...aCase, tracking_number: "HD1" });
+    await userEvent.click(await ready());
+    const dialog = screen.getByRole("dialog", { name: "Move to Logged in" });
+    spy.mockImplementationOnce(() => new Promise<Response>((resolve) => {
+      release = () => resolve(new Response(JSON.stringify({ ...aCase, current_stage_id: 2 }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }));
+    const confirm = within(dialog).getByRole("button", { name: "Confirm move" });
+    await userEvent.click(confirm);
+    await userEvent.click(confirm);
+    expect(confirm).toBeDisabled();
+    release();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Move to Logged in" })).not.toBeInTheDocument());
+    await waitFor(() => expect(spy.mock.calls.filter(([u]) => String(u) === "/api/cases/11").length).toBeGreaterThan(1));
+    const posts = spy.mock.calls.filter(([u, init]) => String(u) === "/api/cases/11/stage" && init?.method === "POST");
+    expect(posts).toHaveLength(1);
+  });
+
+  it("HDFC: Application submitted asks for the tracking number", async () => {
+    const hdfc = { ...aCase, current_stage_id: 31 };
+    renderCase({}, hdfcStages, hdfc);
+    await userEvent.click(await ready());
+    const dialog = screen.getByRole("dialog", { name: "Move to Application submitted" });
+    expect(within(dialog).getByLabelText("Tracking number")).toBeInTheDocument();
+  });
+
+  it("sanction needs the sanctioned amount", async () => {
+    const spy = renderCase({ "POST /api/cases/11/stage": { body: aCase } }, standard, { ...aCase, current_stage_id: 3 });
+    await userEvent.click(await ready());
+    const dialog = screen.getByRole("dialog", { name: "Move to Sanctioned" });
+    await userEvent.clear(within(dialog).getByLabelText("Sanctioned amount (₹)"));
+    await userEvent.type(within(dialog).getByLabelText("Interest rate (%)"), "8.5");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm move" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Enter the sanctioned amount.");
+    expect(bodyOf(spy, "POST /api/cases/11/stage")).toBeUndefined();
+  });
+
+  it("sends an optional remark with a move", async () => {
+    const spy = renderCase({ "POST /api/cases/11/stage": { body: { ...aCase, current_stage_id: 1 } } }, standard, { ...aCase, current_stage_id: 3, tracking_number: "HD1" });
+    await ready();
+    await userEvent.click(screen.getByRole("button", { name: "Other stage…" }));
+    const dialog = screen.getByRole("dialog", { name: "Move to another stage" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Move to stage"), "1");
+    await userEvent.type(within(dialog).getByLabelText("Remark (optional)"), "Moved by mistake");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm move" }));
+    await waitFor(() => expect(bodyOf(spy, "POST /api/cases/11/stage")).toEqual({ stage_id: 1, remark: "Moved by mistake" }));
+  });
+
+  it("shows a move's remark in the history", async () => {
+    renderCase({ "GET /api/cases/11/history": { body: [...history, { id: 4, reached_at: "2026-11-15T10:00:00Z", stage_code: "logged_in", stage_name: "Logged in", changed_by: "Asha", remark: "Bank sent it back" }] } });
+    await ready();
+    expect(screen.getByRole("list", { name: "Stage history" })).toHaveTextContent("Bank sent it back");
   });
 
   it("Other stage lets you pick any stage, including going back", async () => {

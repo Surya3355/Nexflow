@@ -60,6 +60,8 @@ func NewRouter(d Deps) http.Handler {
 		r.Post("/api/admin/users/{id}/password", h.resetPassword)
 		r.Post("/api/admin/banks", h.createBank)
 		r.Put("/api/admin/banks/{id}", h.renameBank)
+		r.Patch("/api/admin/banks/{id}", h.updateBankSettings)
+		r.Get("/api/admin/stage-lists", h.stageLists)
 		r.Post("/api/admin/projects", h.createProject)
 		r.Put("/api/admin/projects/{id}", h.saveProject)
 		r.Post("/api/admin/stages", h.addStage)
@@ -93,6 +95,9 @@ func NewRouter(d Deps) http.Handler {
 		r.Get("/api/customers/{id}", h.getCustomer)
 		r.Put("/api/cases/{id}", h.updateCase)
 		r.Post("/api/cases/{id}/stage", h.changeStage)
+		r.Post("/api/cases/{id}/payments", h.addPayment)
+		r.Patch("/api/cases/{id}/payments/{paymentID}", h.updatePayment)
+		r.Delete("/api/cases/{id}/payments/{paymentID}", h.deletePayment)
 		r.Post("/api/cases/{id}/assign", h.assignCase)
 		r.Post("/api/cases/{id}/project", h.changeCaseProject)
 		r.Post("/api/cases/{id}/builder-contact", h.setCaseBuilderContact)
@@ -108,6 +113,8 @@ func NewRouter(d Deps) http.Handler {
 		r.Get("/api/reports/dashboard", h.dashboard)
 		r.Get("/api/reports/rows", h.reportRows)
 		r.Get("/api/reports/export.csv", h.exportCSV)
+		r.Get("/api/reports/disbursements", h.disbursementRows)
+		r.Get("/api/reports/disbursements.csv", h.exportDisbursementsCSV)
 	})
 	return r
 }

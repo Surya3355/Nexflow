@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { Bank, DashboardData, Project, Stage } from "../api/types";
+import type { Bank, DashboardData, Project, StageTotal } from "../api/types";
 import { ProjectPicker } from "../components/ProjectPicker";
 import { Chip } from "../components/Chip";
 import { btn, card, istToday, muted, page, rupees } from "../components/ui";
@@ -38,16 +38,15 @@ export function Reports() {
   const [projectId, setProjectId] = useState<number | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
-  const [stages, setStages] = useState<Stage[]>([]);
   const [data, setData] = useState<DashboardData | null>(null);
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
+  const [disb, setDisb] = useState<{ columns: string[]; rows: string[][] }>({ columns: [], rows: [] });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api.request<Bank[]>("GET", "/api/config/banks").then(setBanks).catch(() => setBanks([]));
     api.request<Project[]>("GET", "/api/config/projects").then(setProjects).catch(() => setProjects([]));
-    api.request<Stage[]>("GET", "/api/config/stages").then(setStages).catch(() => setStages([]));
   }, []);
 
   const range = preset === "custom" ? custom : presetRange(preset);
@@ -66,15 +65,22 @@ export function Reports() {
     api.request<{ columns: string[]; rows: string[][] }>("GET", `/api/reports/rows?${qs}`)
       .then((r) => { setColumns(r.columns); setRows(r.rows); })
       .catch(() => { setColumns([]); setRows([]); });
+    api.request<{ columns: string[]; rows: string[][] }>("GET", `/api/reports/disbursements?${qs}`)
+      .then(setDisb)
+      .catch(() => setDisb({ columns: [], rows: [] }));
   }, [qs]);
 
-  const byStage = useMemo(() => {
-    const counts = data?.cases_by_stage ?? {};
-    const known = stages.filter((s) => s.code in counts).map((s) => ({ name: s.name, n: counts[s.code] }));
-    const extra = Object.keys(counts).filter((code) => !stages.some((s) => s.code === code)).map((code) => ({ name: code, n: counts[code] }));
-    return [...known, ...extra];
-  }, [data, stages]);
-  const max = Math.max(1, ...byStage.map((s) => s.n));
+  // Open cases grouped under each bank, that bank's stages in order (spec 2026-11-25 §5.6).
+  const byBank = useMemo(() => {
+    const groups: { bank: string; stages: StageTotal[] }[] = [];
+    for (const t of data?.cases_by_stage ?? []) {
+      const g = groups.find((x) => x.bank === t.bank_name);
+      if (g) g.stages.push(t);
+      else groups.push({ bank: t.bank_name, stages: [t] });
+    }
+    return groups;
+  }, [data]);
+  const max = Math.max(1, ...(data?.cases_by_stage ?? []).map((s) => s.total));
   const caseCol = columns.indexOf("Case ID");
 
   return (
@@ -116,15 +122,22 @@ export function Reports() {
 
       <section aria-label="Open cases by stage" className={card}>
         <h2 className="mb-3 font-semibold">Open cases by stage</h2>
-        {byStage.length === 0 ? <p className={muted}>No open cases.</p> : (
-          <ul className="space-y-3 text-sm">
-            {byStage.map((s) => (
-              <li key={s.name}>
-                <div className="flex justify-between"><span>{s.name}</span><b>{s.n}</b></div>
-                <div className="mt-1 h-1.5 rounded bg-slate-200"><div className="h-1.5 rounded bg-blue-600" style={{ width: `${(s.n / max) * 100}%` }} /></div>
-              </li>
+        {byBank.length === 0 ? <p className={muted}>No open cases.</p> : (
+          <div className="space-y-4">
+            {byBank.map((g) => (
+              <div key={g.bank} role="group" aria-label={g.bank}>
+                <h3 className="mb-2 text-sm font-semibold text-slate-600">{g.bank}</h3>
+                <ul className="space-y-3 text-sm">
+                  {g.stages.map((s) => (
+                    <li key={s.stage_id}>
+                      <div className="flex justify-between"><span>{s.stage_name}</span><b>{s.total}</b></div>
+                      <div className="mt-1 h-1.5 rounded bg-slate-200"><div className="h-1.5 rounded bg-blue-600" style={{ width: `${(s.total / max) * 100}%` }} /></div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </section>
 
@@ -148,6 +161,37 @@ export function Reports() {
             </tbody>
           </table>
           {rows.length === 0 && <p className={`${muted} py-2`}>No cases in this period.</p>}
+        </div>
+      </section>
+
+      <section aria-label="Disbursements in this period" className={card}>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="font-semibold">Disbursements in this period</h2>
+          <a className={btn} href={`/api/reports/disbursements.csv?${qs}`}>⬇ Download CSV</a>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead>
+              <tr>{disb.columns.map((c) => <th key={c} className="whitespace-nowrap border-b border-slate-200 px-2 py-2 text-xs font-medium uppercase tracking-wide text-slate-500">{c}</th>)}</tr>
+            </thead>
+            <tbody>
+              {disb.rows.map((r, i) => (
+                <tr key={i}>
+                  {r.map((cell, j) => {
+                    const col = disb.columns[j];
+                    return (
+                      <td key={j} className="whitespace-nowrap border-b border-slate-100 px-2 py-2">
+                        {col === "Case ID" ? <Link to={`/cases/${cell}`} className="text-blue-700">{cell}</Link>
+                          : col === "Status" && cell === "dropped" ? <span className="font-semibold text-red-700">Dropped</span>
+                          : cell}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {disb.rows.length === 0 && <p className={`${muted} py-2`}>No payments in this period.</p>}
         </div>
       </section>
     </main>

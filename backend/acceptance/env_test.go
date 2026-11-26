@@ -184,6 +184,12 @@ func (e *env) moveStage(role access.Role, caseID int64, stage string, tracking s
 	if tracking != "" {
 		body["tracking_number"] = tracking
 	}
+	switch stage { // the sanction and disbursement stages need their amounts (spec 2026-11-25 §5.3)
+	case "sanctioned":
+		body["sanction"] = map[string]any{"amount": "100000", "rate_percent": "8.5"}
+	case "disbursed":
+		body["payment"] = map[string]any{"amount": "100000", "kind": "full"}
+	}
 	e.json(role, "POST", fmt.Sprintf("/api/cases/%d/stage", caseID), body, http.StatusOK, nil)
 }
 

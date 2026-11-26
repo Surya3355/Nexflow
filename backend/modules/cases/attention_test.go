@@ -99,8 +99,8 @@ func TestAttentionStageOrderIsPosition(t *testing.T) {
 	ctx := context.Background()
 	var bank int64
 	mustScan(t, f.pool.QueryRow(ctx, `INSERT INTO banks (name) VALUES ('GapsA') RETURNING id`), &bank)
-	if _, err := f.pool.Exec(ctx, `INSERT INTO stages (bank_id, code, name, sort_order) VALUES
-		($1, 'received', 'Received', 10), ($1, 'disbursed', 'Disbursed', 20)`, bank); err != nil {
+	if _, err := f.pool.Exec(ctx, `INSERT INTO stages (bank_id, code, name, sort_order, role) VALUES
+		($1, 'received', 'Received', 10, 'start'), ($1, 'disbursed', 'Disbursed', 20, 'disbursement')`, bank); err != nil {
 		t.Fatalf("stages: %v", err)
 	}
 	c, err := f.svc.Create(ctx, f.actor, NewCase{ProjectID: f.naProject, CustomerID: f.customer, BankID: bank, LoanAmount: "500000", AssigneeID: f.actor.ID})

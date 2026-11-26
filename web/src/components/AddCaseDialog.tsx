@@ -39,6 +39,9 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
   const [contactId, setContactId] = useState("");
   const [fetchedType, setFetchedType] = useState<ProjectType | null>(null);
   const sending = useRef(false);
+  // Banks on their own stage list (HDFC) always start at their start stage (spec 2026-11-25 §5.5).
+  const ownList = banks.find((b) => String(b.id) === bankId)?.stage_list === "hdfc";
+  const start = ownList ? "" : startAt;
 
   // The project's current contacts, prefilled with the lead's contact while it
   // is still on the list, else the first one (spec 2026-11-24 §4.3).
@@ -95,7 +98,7 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
       setError(`Enter the ${unitName.toLowerCase()}.`);
       return;
     }
-    if (startAt === "logged_in" && !tracking.trim()) {
+    if (start === "logged_in" && !tracking.trim()) {
       setError("Enter the tracking number.");
       return;
     }
@@ -105,7 +108,7 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
     }
     const body = {
       bank_id: Number(bankId), loan_amount: amount.trim(), assignee_id: Number(assigneeId),
-      unit_number: unit.trim(), start_at: startAt, tracking_number: startAt === "logged_in" ? tracking.trim() : "",
+      unit_number: unit.trim(), start_at: start, tracking_number: start === "logged_in" ? tracking.trim() : "",
       ...(contacts.length > 0 && contactId ? { builder_contact_id: Number(contactId) } : {}),
     };
     sending.current = true;
@@ -154,13 +157,15 @@ export function AddCaseDialog({ open, onClose, onSaved, customerName, fromLead, 
             {users.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
           </select>
         </label>
-        <label className={label}>Start at
-          <select className={input} value={startAt} onChange={(e) => setStartAt(e.target.value as "received" | "logged_in")}>
-            <option value="received">Received</option>
-            <option value="logged_in">Logged in</option>
-          </select>
-        </label>
-        {startAt === "logged_in" && (
+        {!ownList && (
+          <label className={label}>Start at
+            <select className={input} value={startAt} onChange={(e) => setStartAt(e.target.value as "received" | "logged_in")}>
+              <option value="received">Received</option>
+              <option value="logged_in">Logged in</option>
+            </select>
+          </label>
+        )}
+        {start === "logged_in" && (
           <label className={label}>Tracking number
             <input className={input} value={tracking} onChange={(e) => setTracking(e.target.value.toUpperCase())} placeholder="Bank's loan application number" />
           </label>

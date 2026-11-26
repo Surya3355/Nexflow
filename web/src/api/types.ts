@@ -25,7 +25,21 @@ export type Case = {
   builder_contact?: BuilderContact | null;
   /** The project's type (null for NA and untyped); single case only. Drives the unit label. */
   project_type?: ProjectType | null;
+  /** Single case only: the bank pays in parts, and the payments with their totals (spec 2026-11-25 §5.4). */
+  part_payments?: boolean;
+  payments?: Payment[];
+  total_paid?: string;
+  remaining?: string;
+  fully_paid?: boolean;
+  over_paid?: boolean;
 };
+
+export type PaymentKind = "part" | "full";
+/** One disbursement payment; paid_on is YYYY-MM-DD. */
+export type Payment = { id: number; amount: string; paid_on: string; kind: PaymentKind };
+
+/** What a stage does, whatever its name (spec 2026-11-25 §4 A). */
+export type StageRole = "" | "start" | "tracking" | "sanction" | "disbursement";
 
 export type Stage = {
   id: number;
@@ -33,6 +47,7 @@ export type Stage = {
   name: string;
   sort_order: number;
   requires_document: boolean;
+  role?: StageRole;
 };
 
 export type StageEvent = {
@@ -41,6 +56,7 @@ export type StageEvent = {
   stage_code: string;
   stage_name: string;
   changed_by: string;
+  remark?: string;
 };
 
 export type Customer = {
@@ -53,7 +69,7 @@ export type Customer = {
   leads?: LeadRow[];
 };
 
-export type Bank = { id: number; name: string; has_own_stages?: boolean };
+export type Bank = { id: number; name: string; has_own_stages?: boolean; part_payments?: boolean; stage_list?: "standard" | "hdfc" };
 /** A builder project. NA (is_system) is the fixed entry for loans without one. */
 export type ProjectType = "high_rise" | "apartments" | "plots" | "villas";
 /** A builder contact of one project. `removed` is set on a lead's or case's contact that admin took off the list. */
@@ -158,13 +174,18 @@ export type TeamMember = {
 export type StageCount = { count: number; amount: string; dropped: number };
 
 /** GET /api/reports/dashboard. */
+export type StageTotal = {
+  bank_id: number; bank_name: string; stage_id: number; stage_code: string; stage_name: string; sort_order: number; total: number;
+};
+
 export type DashboardData = {
   new_customers_today: number;
   new_cases_today: number;
   new_customers: number;
   new_cases: number;
   stage_moves_today: number;
-  cases_by_stage: Record<string, number>;
+  /** Open cases per bank and stage, each bank's stages in order. */
+  cases_by_stage: StageTotal[];
   sanctions: StageCount;
   disbursements: StageCount;
 };

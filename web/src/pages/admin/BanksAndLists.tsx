@@ -16,6 +16,7 @@ export function BanksAndLists() {
   const [reasons, setReasons] = useState<DropReason[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [editing, setEditing] = useState<Editing>(null);
+  const [bankError, setBankError] = useState<string | null>(null);
 
   function load() {
     api.request<Bank[]>("GET", "/api/config/banks").then(setBanks).catch(() => setBanks([]));
@@ -23,6 +24,21 @@ export function BanksAndLists() {
     api.request<Project[]>("GET", "/api/config/projects").then(setProjects).catch(() => setProjects([]));
   }
   useEffect(load, []);
+
+  async function patchBank(b: Bank, body: { stage_list?: "hdfc"; part_payments?: boolean }) {
+    setBankError(null);
+    try {
+      await api.request<void>("PATCH", `/api/admin/banks/${b.id}`, body);
+      load();
+    } catch (err) {
+      setBankError(err instanceof ApiError ? err.message : "Could not save the bank.");
+    }
+  }
+
+  function useHDFC(b: Bank) {
+    if (!window.confirm("Move this bank's cases to the HDFC stages? This cannot be undone.")) return;
+    void patchBank(b, { stage_list: "hdfc" });
+  }
 
   function done() {
     setEditing(null);
@@ -41,7 +57,19 @@ export function BanksAndLists() {
             {banks.map((b) => (
               <tr key={b.id} className="border-t border-slate-100">
                 <td className="px-2 py-2">{b.name}</td>
-                <td className={`px-2 py-2 ${muted}`}>{b.has_own_stages ? "Own stages" : "Standard stages"}</td>
+                <td className={`px-2 py-2 ${muted}`}>
+                  {b.stage_list === "hdfc" || b.has_own_stages ? "HDFC stages" : "Standard stages"}
+                  {b.stage_list !== "hdfc" && !b.has_own_stages && (
+                    <button type="button" aria-label={`Use HDFC stages for ${b.name}`} className="ml-2 text-blue-700" onClick={() => useHDFC(b)}>Use HDFC stages</button>
+                  )}
+                </td>
+                <td className={`px-2 py-2 ${muted}`}>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" aria-label={`Part payments: ${b.name}`} checked={Boolean(b.part_payments)}
+                      onChange={(e) => void patchBank(b, { part_payments: e.target.checked })} />
+                    Part payments
+                  </label>
+                </td>
                 <td className="px-2 py-2 text-right">
                   <button type="button" aria-label={`Rename ${b.name}`} className="text-blue-700" onClick={() => setEditing({ kind: "rename", bank: b })}>Rename</button>
                 </td>
@@ -49,6 +77,7 @@ export function BanksAndLists() {
             ))}
           </tbody>
         </table>
+        {bankError && <p role="alert" className={`${alertBox} mt-2`}>{bankError}</p>}
       </section>
       <section aria-label="Projects" className={`${card} min-[900px]:col-start-1`}>
         <div className="flex items-center justify-between">

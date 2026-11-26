@@ -9,10 +9,10 @@ func TestHistoryListsStageEventsInOrder(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	c := newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), tracking("HIST1"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("HIST1")}); err != nil {
 		t.Fatalf("move: %v", err)
 	}
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "under_sanction"), nil, nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "under_sanction")}); err != nil {
 		t.Fatalf("move 2: %v", err)
 	}
 	events, err := f.svc.History(ctx, c.ID)

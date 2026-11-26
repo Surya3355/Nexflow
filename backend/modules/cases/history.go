@@ -15,6 +15,7 @@ type StageEvent struct {
 	StageCode string
 	StageName string
 	ChangedBy string
+	Remark    string // optional note on the move
 }
 
 // History returns the stage events of a case, oldest first. Earlier events are never changed.
@@ -27,7 +28,7 @@ func (s *Service) History(ctx context.Context, caseID int64) ([]StageEvent, erro
 	for _, r := range rows {
 		out = append(out, StageEvent{
 			ID: r.ID, ReachedAt: r.ReachedAt.Time, StageCode: r.StageCode,
-			StageName: r.StageName, ChangedBy: r.ChangedByName,
+			StageName: r.StageName, ChangedBy: r.ChangedByName, Remark: r.Remark,
 		})
 	}
 	return out, nil

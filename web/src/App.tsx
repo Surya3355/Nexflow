@@ -64,7 +64,7 @@ export default function App() {
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:id" element={<ProjectDetail />} />
         <Route path="/reports" element={<Reports />} />
-        <Route path="/cases/:id" element={<CaseDetail />} />
+        <Route path="/cases/:id" element={<CaseDetail role={user.role} />} />
         <Route path="/customers/:id" element={<CustomerDetail />} />
         <Route path="/leads/:id" element={<LeadDetail />} />
         <Route

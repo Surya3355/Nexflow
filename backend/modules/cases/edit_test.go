@@ -46,7 +46,7 @@ func TestEditDoesNotChangeStageOrAssignee(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	c := newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), tracking("EDIT1"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("EDIT1")}); err != nil {
 		t.Fatalf("stage: %v", err)
 	}
 	before, err := f.svc.load(ctx, c.ID)

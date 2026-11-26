@@ -52,7 +52,7 @@ func TestRowsAndDashboardProjectFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dashboard: %v", err)
 	}
-	if d.NewCases != 1 || d.NewCasesToday != 1 || d.CasesByStage["received"] != 1 {
+	if d.NewCases != 1 || d.NewCasesToday != 1 || byCode(d)["received"] != 1 {
 		t.Fatalf("Prestige only: %+v", d)
 	}
 }

@@ -29,10 +29,10 @@ func TestAnyStaffCanReassignAtAnyStage(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	c := newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), tracking("ASG1"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("ASG1")}); err != nil {
 		t.Fatalf("logged_in: %v", err)
 	}
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "disbursed"), nil, nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "disbursed"), Payment: &PaymentInput{Amount: "1000000", Kind: "full"}}); err != nil {
 		t.Fatalf("disbursed: %v", err)
 	}
 	other := seedUser(t, f, "colleague", true)

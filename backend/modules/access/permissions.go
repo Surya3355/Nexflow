@@ -34,13 +34,15 @@ const (
 	ActionManageConfig   Action = "manage_config"
 	ActionManageUsers    Action = "manage_users"
 	ActionViewReports    Action = "view_reports"
+	// ActionCorrectPayment edits or deletes a recorded disbursement payment (spec 2026-11-25 §5.4).
+	ActionCorrectPayment Action = "correct_payment"
 )
 
 // AllActions lists every action, in spec §6 order.
 var AllActions = []Action{
 	ActionViewAll, ActionAddRecord, ActionEditRecord, ActionUploadDocument,
 	ActionDropRecord, ActionAssignCase, ActionHardDelete, ActionRestoreArchive,
-	ActionManageConfig, ActionManageUsers, ActionViewReports,
+	ActionManageConfig, ActionManageUsers, ActionViewReports, ActionCorrectPayment,
 }
 
 // matrix is spec §6 as data, so it can be compared with the spec row by row.
@@ -56,6 +58,7 @@ var matrix = map[Action]map[Role]bool{
 	ActionManageConfig:   {RoleAdmin: true, RoleManager: false, RoleEmployee: false},
 	ActionManageUsers:    {RoleAdmin: true, RoleManager: false, RoleEmployee: false},
 	ActionViewReports:    {RoleAdmin: true, RoleManager: true, RoleEmployee: true},
+	ActionCorrectPayment: {RoleAdmin: true, RoleManager: true, RoleEmployee: false},
 }
 
 // Can reports whether role may perform action. Unknown roles and actions are refused.

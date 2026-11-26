@@ -13,6 +13,7 @@ var schemaTables = []string{
 	"users", "sessions", "banks", "stages", "dropdown_values",
 	"customers", "cases", "case_stage_events", "case_assignment_events",
 	"documents", "archive", "audit_log", "alert_log", "projects", "leads", "lead_contacts", "project_contacts",
+	"case_disbursements",
 }
 
 func tableExists(t *testing.T, pool *pgxpool.Pool, name string) bool {
@@ -342,5 +343,64 @@ func TestMigration6NAHasNoType(t *testing.T) {
 	}
 	if _, err := pool.Exec(context.Background(), `INSERT INTO projects (name, type) VALUES ('Q', 'flats')`); err == nil || !strings.Contains(err.Error(), "23514") {
 		t.Fatalf("type flats err = %v, want 23514", err)
+	}
+}
+
+func TestMigration7RolesAndPayments(t *testing.T) {
+	pool := testdb.New(t)
+	if err := migrateTo(pool, 6); err != nil {
+		t.Fatalf("to 6: %v", err)
+	}
+	ctx := context.Background()
+	user, bank, cust, a, _ := m6Fixture(t, pool)
+	var paid, open int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, project_id, status, disbursed_amount, disbursement_date)
+		VALUES ($1, $2, 600000, (SELECT id FROM stages WHERE code='disbursed' AND bank_id IS NULL), $3, $4, 'completed', 500000, '2026-11-05') RETURNING id`,
+		cust, bank, user, a), &paid)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, project_id)
+		VALUES ($1, $2, 600000, (SELECT id FROM stages WHERE code='received' AND bank_id IS NULL), $3, $4) RETURNING id`,
+		cust, bank, user, a), &open)
+
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	roles := map[string]string{"received": "start", "logged_in": "tracking", "sanctioned": "sanction", "disbursed": "disbursement"}
+	for code, want := range roles {
+		var got string
+		mustScan(t, pool.QueryRow(ctx, `SELECT COALESCE(role, '') FROM stages WHERE bank_id IS NULL AND code = $1`, code), &got)
+		if got != want {
+			t.Errorf("role of %s = %q, want %q", code, got, want)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE stages SET role = 'sanction' WHERE bank_id IS NULL AND code = 'documentation'`); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("second sanction role err = %v, want 23505", err)
+	}
+	var n int
+	var amount, kind, day string
+	mustScan(t, pool.QueryRow(ctx, `SELECT count(*) FROM case_disbursements WHERE case_id = $1`, paid), &n)
+	if n != 1 {
+		t.Fatalf("payments for old disbursed case = %d, want 1", n)
+	}
+	mustScan(t, pool.QueryRow(ctx, `SELECT amount::text, kind, paid_on::text FROM case_disbursements WHERE case_id = $1`, paid), &amount, &kind, &day)
+	if amount != "500000.00" || kind != "full" || day != "2026-11-05" {
+		t.Fatalf("migrated payment = %s %s %s", amount, kind, day)
+	}
+	mustScan(t, pool.QueryRow(ctx, `SELECT count(*) FROM case_disbursements WHERE case_id = $1`, open), &n)
+	if n != 0 {
+		t.Fatalf("payments for open case = %d, want 0", n)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO case_disbursements (case_id, amount, paid_on, kind) VALUES ($1, 100, '2026-11-06', 'full')`, paid); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("second full payment err = %v, want 23505", err)
+	}
+	var partOK bool
+	mustScan(t, pool.QueryRow(ctx, `SELECT part_payments FROM banks WHERE id = $1`, bank), &partOK)
+	if partOK {
+		t.Fatal("part_payments default should be false")
+	}
+	var ev int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO case_stage_events (case_id, stage_id, reached_at, changed_by, remark)
+		VALUES ($1, (SELECT id FROM stages WHERE code='received' AND bank_id IS NULL), now(), $2, 'moved by mistake') RETURNING id`, open, user), &ev)
+	if _, err := pool.Exec(ctx, `UPDATE case_stage_events SET remark = repeat('x', 501) WHERE id = $1`, ev); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Fatalf("501-char remark err = %v, want 23514", err)
 	}
 }

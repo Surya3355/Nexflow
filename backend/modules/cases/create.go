@@ -26,7 +26,7 @@ import (
 // Errors returned by the cases service.
 var (
 	ErrInvalidAmount = errors.New("cases: loan amount must be a number greater than zero")
-	ErrNoStartStage  = errors.New("cases: bank has no Received stage")
+	ErrNoStartStage  = errors.New("cases: bank has no start stage")
 	// ErrProjectRequired: every case belongs to a project (spec 2026-11-21 §4.3).
 	ErrProjectRequired = errors.New("cases: choose a project, or NA")
 	ErrProjectNotFound = errors.New("cases: project not found")
@@ -36,8 +36,11 @@ var (
 	ErrBankRequired    = errors.New("cases: choose a bank")
 )
 
-// startStageCode is the stage every new case starts at (spec §5).
+// startStageCode is the old name for starting at the start stage.
 const startStageCode = "received"
+
+// stageLoggedIn is the old name for starting at the tracking stage.
+const stageLoggedIn = "logged_in"
 
 // Case is one loan application for a customer.
 type Case struct {
@@ -62,6 +65,8 @@ type Case struct {
 	// ProjectType is the project's type (nil for NA and untyped), filled by
 	// Get and the write actions; the web labels the unit no. by it.
 	ProjectType *string
+	// PartPayments is true when the case's bank pays in parts (filled by Get).
+	PartPayments bool
 }
 
 // toCase maps a stored case row to the Case the API presents.
@@ -96,7 +101,8 @@ type NewCase struct {
 	AssigneeID int64
 	// UnitNumber is the flat, villa or plot number (optional).
 	UnitNumber string
-	// StartAt is "received" (default) or "logged_in"; logged_in needs TrackingNumber.
+	// StartAt is "" or "start" (the bank's start stage), or "tracking" (standard
+	// list only; needs TrackingNumber). "received" and "logged_in" are old aliases.
 	StartAt        string
 	TrackingNumber string
 	// BuilderContactID is one of the project's active contacts; 0 means none,
@@ -211,14 +217,24 @@ func (s *Service) prepare(ctx context.Context, in NewCase) (prepared, error) {
 	if err := s.checkUnitRequired(ctx, s.q, in.ProjectID, unit); err != nil {
 		return p, err
 	}
-	start := in.StartAt
-	if start == "" {
-		start = startStageCode
+	stages, err := s.workflows.StagesFor(ctx, in.BankID)
+	if err != nil {
+		return p, err
 	}
-	if start != startStageCode && start != stageLoggedIn {
-		return p, ErrInvalidStart
+	startStage, ok := workflows.StageWithRole(stages, workflows.RoleStart)
+	if !ok {
+		return p, ErrNoStartStage
 	}
-	if start == stageLoggedIn {
+	ownList := len(stages) > 0 && stages[0].BankID != nil
+	switch in.StartAt {
+	case "", "start", startStageCode:
+		p.stages = []int64{startStage.ID}
+	case "tracking", stageLoggedIn:
+		// Only the standard list offers starting at its tracking stage (Logged in).
+		trackStage, ok := workflows.StageWithRole(stages, workflows.RoleTracking)
+		if ownList || !ok {
+			return p, ErrInvalidStart
+		}
 		tr, err := NormalizeTracking(in.TrackingNumber)
 		if err != nil {
 			return p, err
@@ -227,26 +243,9 @@ func (s *Service) prepare(ctx context.Context, in NewCase) (prepared, error) {
 			return p, ErrTrackingRequired
 		}
 		p.tracking = pgtype.Text{String: tr, Valid: true}
-	}
-	stages, err := s.workflows.StagesFor(ctx, in.BankID)
-	if err != nil {
-		return p, err
-	}
-	ids := map[string]int64{}
-	for _, st := range stages {
-		ids[st.Code] = st.ID
-	}
-	received, ok := ids[startStageCode]
-	if !ok {
-		return p, ErrNoStartStage
-	}
-	p.stages = []int64{received}
-	if start == stageLoggedIn {
-		logged, ok := ids[stageLoggedIn]
-		if !ok {
-			return p, ErrInvalidStart
-		}
-		p.stages = append(p.stages, logged)
+		p.stages = []int64{startStage.ID, trackStage.ID}
+	default:
+		return p, ErrInvalidStart
 	}
 	return p, nil
 }

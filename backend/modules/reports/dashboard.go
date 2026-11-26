@@ -31,6 +31,17 @@ type StageCount struct {
 	Dropped int
 }
 
+// StageTotal is the number of open cases of one bank at one of its stages.
+type StageTotal struct {
+	BankID    *int64
+	BankName  string
+	StageID   int64
+	StageCode string
+	StageName string
+	SortOrder int
+	Total     int
+}
+
 // DashboardData is the first-version dashboard (spec §9).
 type DashboardData struct {
 	NewCustomersToday int
@@ -38,7 +49,7 @@ type DashboardData struct {
 	NewCustomers      int // created in the period
 	NewCases          int // created in the period
 	StageMovesToday   int // stage events today (IST), not counting the Received a case opens with
-	CasesByStage      map[string]int
+	CasesByStage      []StageTotal
 	Sanctions         StageCount
 	Disbursements     StageCount
 }
@@ -110,28 +121,26 @@ func (s *Service) Dashboard(ctx context.Context, now time.Time, p Period) (Dashb
 	if err != nil {
 		return d, fmt.Errorf("reports: by stage: %w", err)
 	}
-	d.CasesByStage = map[string]int{}
+	d.CasesByStage = make([]StageTotal, 0, len(rows))
 	for _, r := range rows {
-		d.CasesByStage[r.Code] = int(r.Total)
+		id := r.BankID
+		d.CasesByStage = append(d.CasesByStage, StageTotal{BankID: &id, BankName: r.BankName, StageID: r.StageID,
+			StageCode: r.StageCode, StageName: r.StageName, SortOrder: int(r.SortOrder), Total: int(r.Total)})
 	}
 
-	if d.Sanctions, err = s.stageHits(ctx, "sanctioned", p, bank, project); err != nil {
-		return d, err
-	}
-	if d.Disbursements, err = s.stageHits(ctx, "disbursed", p, bank, project); err != nil {
-		return d, err
-	}
-	return d, nil
-}
-
-func (s *Service) stageHits(ctx context.Context, code string, p Period, bank, project pgtype.Int8) (StageCount, error) {
-	row, err := s.q.StageHits(ctx, reportsdb.StageHitsParams{
-		StageCode: code, FromTs: ts(p.From), ToTs: ts(p.To), BankID: bank, ProjectID: project,
-	})
+	// Sanctions count the stage with the sanction role, whatever the bank calls it.
+	sh, err := s.q.SanctionHits(ctx, reportsdb.SanctionHitsParams{FromTs: ts(p.From), ToTs: ts(p.To), BankID: bank, ProjectID: project})
 	if err != nil {
-		return StageCount{}, fmt.Errorf("reports: %s: %w", code, err)
+		return d, fmt.Errorf("reports: sanctions: %w", err)
 	}
-	return StageCount{Count: int(row.Cases), Amount: row.Amount, Dropped: int(row.Dropped)}, nil
+	d.Sanctions = StageCount{Count: int(sh.Cases), Amount: sh.Amount, Dropped: int(sh.Dropped)}
+	// Disbursements count cases paid in the period and the money paid in it.
+	dh, err := s.q.DisbursementHits(ctx, reportsdb.DisbursementHitsParams{FromTs: ts(p.From), ToTs: ts(p.To), BankID: bank, ProjectID: project})
+	if err != nil {
+		return d, fmt.Errorf("reports: disbursements: %w", err)
+	}
+	d.Disbursements = StageCount{Count: int(dh.Cases), Amount: dh.Amount, Dropped: int(dh.Dropped)}
+	return d, nil
 }
 
 func ts(t time.Time) pgtype.Timestamptz {

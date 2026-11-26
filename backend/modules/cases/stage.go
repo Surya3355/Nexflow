@@ -5,11 +5,14 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Surya3355/nexflow/backend/modules/access"
 	"github.com/Surya3355/nexflow/backend/modules/cases/casesdb"
 	"github.com/Surya3355/nexflow/backend/modules/history"
+	"github.com/Surya3355/nexflow/backend/modules/workflows"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -22,18 +25,17 @@ func isUniqueViolation(err error) bool {
 
 // Errors for stage moves and case lookups.
 var (
-	ErrTrackingRequired  = errors.New("cases: tracking number is required when the case moves to Logged in")
-	ErrCaseDropped       = errors.New("cases: a dropped case cannot change stage; restore it first")
-	ErrCaseNotFound      = errors.New("cases: case not found")
-	ErrStageNotForBank   = errors.New("cases: stage does not belong to this bank")
-	ErrDuplicateTracking = errors.New("cases: tracking number is already used by a live case")
+	ErrTrackingRequired       = errors.New("cases: tracking number is required at this stage")
+	ErrCaseDropped            = errors.New("cases: a dropped case cannot change stage; restore it first")
+	ErrCaseNotFound           = errors.New("cases: case not found")
+	ErrStageNotForBank        = errors.New("cases: stage does not belong to this bank")
+	ErrDuplicateTracking      = errors.New("cases: tracking number is already used by a live case")
+	ErrSanctionAmountRequired = errors.New("cases: enter the sanctioned amount")
+	ErrRemarkTooLong          = errors.New("cases: remark must be 500 characters or fewer")
 )
 
-// Stage codes that carry rules (spec §5).
-const (
-	stageLoggedIn  = "logged_in"
-	stageDisbursed = "disbursed"
-)
+// maxRemark is the longest remark a stage move can carry.
+const maxRemark = 500
 
 // istZone is India Standard Time. "Today" for dates in this app is IST (spec §9).
 var istZone = time.FixedZone("IST", 5*60*60+30*60)
@@ -47,22 +49,31 @@ type SanctionDetails struct {
 	Date         time.Time
 }
 
-// DisbursementDetails are captured when a case is disbursed (spec §4.2).
-type DisbursementDetails struct {
-	Amount string
-	Date   time.Time
+// StageMove is one stage change as staff ask for it.
+type StageMove struct {
+	ToStageID      int64
+	TrackingNumber *string          // needed to reach the tracking-role stage
+	Sanction       *SanctionDetails // needed to reach the sanction-role stage
+	Payment        *PaymentInput    // first payment, when reaching the disbursement-role stage
+	Remark         string           // optional
 }
 
 // ChangeStage moves a case to another stage of its bank. Any stage can be
 // reached, forward or backward (spec §5, round 8). Every move adds a dated
 // history row and an audit entry, in one transaction.
 //
-// Rules: a dropped case cannot move. Moving to Logged in needs a tracking
-// number (unless the case already has one). Moving to Disbursed completes the case.
-func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID, toStageID int64,
-	trackingNumber *string, sanction *SanctionDetails, disbursement *DisbursementDetails) (Case, error) {
+// Rules by stage role (spec 2026-11-25 §5.3): the tracking stage needs a
+// tracking number; the sanction stage needs the sanctioned amount, which
+// replaces the loan amount; the disbursement stage needs a first payment
+// unless the case already has one. A case is completed only while it is at
+// the disbursement stage and has its Full payment. A dropped case cannot move.
+func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID int64, m StageMove) (Case, error) {
 	if !access.Can(actor.Role, access.ActionEditRecord) {
 		return Case{}, access.ErrForbidden
+	}
+	remark := strings.TrimSpace(m.Remark)
+	if utf8.RuneCountInString(remark) > maxRemark {
+		return Case{}, ErrRemarkTooLong
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -88,16 +99,10 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID, to
 	if err != nil {
 		return Case{}, err
 	}
-	var to *struct {
-		id   int64
-		code string
-	}
-	for _, st := range stages {
-		if st.ID == toStageID {
-			to = &struct {
-				id   int64
-				code string
-			}{st.ID, st.Code}
+	var to *workflows.Stage
+	for i := range stages {
+		if stages[i].ID == m.ToStageID {
+			to = &stages[i]
 			break
 		}
 	}
@@ -106,8 +111,8 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID, to
 	}
 
 	var newTracking pgtype.Text
-	if trackingNumber != nil {
-		v, err := NormalizeTracking(*trackingNumber)
+	if m.TrackingNumber != nil {
+		v, err := NormalizeTracking(*m.TrackingNumber)
 		if err != nil {
 			return Case{}, err
 		}
@@ -116,16 +121,43 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID, to
 		}
 	}
 	hasTracking := newTracking.Valid || (locked.TrackingNumber.Valid && locked.TrackingNumber.String != "")
-	if to.code == stageLoggedIn && !hasTracking {
+	if to.Role == workflows.RoleTracking && !hasTracking {
 		return Case{}, ErrTrackingRequired
+	}
+	if to.Role == workflows.RoleSanction && (m.Sanction == nil || strings.TrimSpace(m.Sanction.Amount) == "") {
+		return Case{}, ErrSanctionAmountRequired
+	}
+
+	fullyPaid := false
+	if to.Role == workflows.RoleDisbursement {
+		state, err := q.CasePaymentState(txCtx, caseID)
+		if err != nil {
+			return Case{}, fmt.Errorf("cases: payment state: %w", err)
+		}
+		fullyPaid = state.FullyPaid
+		if m.Payment == nil && state.Payments == 0 {
+			return Case{}, ErrPaymentRequired
+		}
+		if m.Payment != nil {
+			full, err := s.insertPaymentTx(txCtx, q, actor, caseID, locked.BankID, *m.Payment)
+			if err != nil {
+				return Case{}, err
+			}
+			fullyPaid = full
+			if err := s.audit(txCtx, actor, "case.payment_added", caseID, map[string]any{
+				"amount": m.Payment.Amount, "kind": m.Payment.Kind,
+				"paid_on": istDate(orToday(m.Payment.Date)).Format(time.DateOnly)}); err != nil {
+				return Case{}, err
+			}
+		}
 	}
 
 	status := "active"
-	if to.code == stageDisbursed {
+	if fullyPaid {
 		status = "completed"
 	}
 	if err := q.SetCaseStage(txCtx, casesdb.SetCaseStageParams{
-		ID: caseID, CurrentStageID: to.id, Status: status,
+		ID: caseID, CurrentStageID: to.ID, Status: status,
 		UpdatedBy: pgtype.Int8{Int64: actor.ID, Valid: true}, TrackingNumber: newTracking,
 	}); err != nil {
 		if isUniqueViolation(err) {
@@ -133,42 +165,31 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID, to
 		}
 		return Case{}, fmt.Errorf("cases: set stage: %w", err)
 	}
-	if sanction != nil {
-		if err := setSanction(txCtx, q, caseID, actor.ID, *sanction); err != nil {
+	details := map[string]any{"to_stage_id": to.ID, "to_stage_code": to.Code}
+	if to.Role == workflows.RoleSanction {
+		details["old_loan_amount"] = numericString(locked.LoanAmount)
+		if err := setSanction(txCtx, q, caseID, actor.ID, *m.Sanction); err != nil {
 			return Case{}, err
 		}
 	}
-	if disbursement != nil {
-		if err := setDisbursement(txCtx, q, caseID, actor.ID, *disbursement); err != nil {
-			return Case{}, err
-		}
+	if remark != "" {
+		details["remark"] = remark
 	}
 
 	now := time.Now()
 	if err := q.InsertCaseStageEventAt(txCtx, casesdb.InsertCaseStageEventAtParams{
-		CaseID: caseID, StageID: to.id, ReachedAt: pgtype.Timestamptz{Time: now, Valid: true}, ChangedBy: actor.ID,
+		CaseID: caseID, StageID: to.ID, ReachedAt: pgtype.Timestamptz{Time: now, Valid: true}, ChangedBy: actor.ID,
+		Remark: pgtype.Text{String: remark, Valid: remark != ""},
 	}); err != nil {
 		return Case{}, fmt.Errorf("cases: stage event: %w", err)
 	}
-
-	// Document purge: one year after the case is disbursed (spec §4.4).
-	if status == "completed" {
-		purge := istDate(now).AddDate(1, 0, 0)
-		if err := q.SetCaseDocumentsPurgeAfter(txCtx, casesdb.SetCaseDocumentsPurgeAfterParams{
-			CaseID: caseID, PurgeAfter: pgtype.Date{Time: purge, Valid: true},
-		}); err != nil {
-			return Case{}, fmt.Errorf("cases: purge date: %w", err)
-		}
-	} else if locked.Status == "completed" {
-		if err := q.ClearCaseDocumentsPurgeAfter(txCtx, caseID); err != nil {
-			return Case{}, fmt.Errorf("cases: clear purge date: %w", err)
-		}
+	if err := s.syncPurgeDate(txCtx, q, caseID, locked.Status, status, now); err != nil {
+		return Case{}, err
 	}
 
 	actorID, id := actor.ID, caseID
 	if err := s.rec.Record(txCtx, history.Entry{
-		ActorUserID: &actorID, Action: "case.stage_changed", EntityType: "case", EntityID: &id,
-		Details: map[string]any{"to_stage_id": to.id, "to_stage_code": to.code},
+		ActorUserID: &actorID, Action: "case.stage_changed", EntityType: "case", EntityID: &id, Details: details,
 	}); err != nil {
 		return Case{}, fmt.Errorf("cases: audit: %w", err)
 	}
@@ -181,6 +202,25 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID, to
 		return Case{}, fmt.Errorf("cases: commit: %w", err)
 	}
 	return toCase(row), nil
+}
+
+// syncPurgeDate sets the document purge date when a case becomes completed
+// (one year after, spec §4.4) and clears it when a completed case reopens.
+func (s *Service) syncPurgeDate(ctx context.Context, q *casesdb.Queries, caseID int64, was, now string, at time.Time) error {
+	switch {
+	case now == "completed" && was != "completed":
+		purge := istDate(at).AddDate(1, 0, 0)
+		if err := q.SetCaseDocumentsPurgeAfter(ctx, casesdb.SetCaseDocumentsPurgeAfterParams{
+			CaseID: caseID, PurgeAfter: pgtype.Date{Time: purge, Valid: true},
+		}); err != nil {
+			return fmt.Errorf("cases: purge date: %w", err)
+		}
+	case now != "completed" && was == "completed":
+		if err := q.ClearCaseDocumentsPurgeAfter(ctx, caseID); err != nil {
+			return fmt.Errorf("cases: clear purge date: %w", err)
+		}
+	}
+	return nil
 }
 
 func setSanction(ctx context.Context, q *casesdb.Queries, caseID, actorID int64, d SanctionDetails) error {
@@ -204,18 +244,6 @@ func setSanction(ctx context.Context, q *casesdb.Queries, caseID, actorID int64,
 		ID: caseID, SanctionedAmount: amount, InterestRate: rate, InterestType: itype,
 		TenureMonths: tenure, SanctionDate: pgtype.Date{Time: istDate(d.Date), Valid: !d.Date.IsZero()},
 		UpdatedBy: pgtype.Int8{Int64: actorID, Valid: true},
-	})
-}
-
-func setDisbursement(ctx context.Context, q *casesdb.Queries, caseID, actorID int64, d DisbursementDetails) error {
-	amount, err := parseAmount(d.Amount)
-	if err != nil {
-		return err
-	}
-	return q.SetCaseDisbursement(ctx, casesdb.SetCaseDisbursementParams{
-		ID: caseID, DisbursedAmount: amount,
-		DisbursementDate: pgtype.Date{Time: istDate(d.Date), Valid: !d.Date.IsZero()},
-		UpdatedBy:        pgtype.Int8{Int64: actorID, Valid: true},
 	})
 }
 

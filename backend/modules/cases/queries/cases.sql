@@ -18,7 +18,7 @@ SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id,
 FROM cases WHERE id = $1;
 
 -- name: LockCase :one
-SELECT id, customer_id, bank_id, current_stage_id, status, tracking_number, assignee_id, project_id, builder_contact_id
+SELECT id, customer_id, bank_id, current_stage_id, status, tracking_number, assignee_id, project_id, builder_contact_id, loan_amount
 FROM cases WHERE id = $1 FOR UPDATE;
 
 -- name: GetUserActive :one
@@ -42,14 +42,14 @@ WHERE id = $1;
 
 -- name: SetCaseSanction :exec
 UPDATE cases
-SET sanctioned_amount = $2, interest_rate = $3, interest_type = $4,
+SET sanctioned_amount = $2, loan_amount = $2, interest_rate = $3, interest_type = $4,
     tenure_months = $5, sanction_date = $6, updated_at = now(), updated_by = $7
 WHERE id = $1;
 
--- name: SetCaseDisbursement :exec
-UPDATE cases
-SET disbursed_amount = $2, disbursement_date = $3, updated_at = now(), updated_by = $4
-WHERE id = $1;
+-- name: InsertCaseDisbursement :one
+INSERT INTO case_disbursements (case_id, amount, paid_on, kind, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $5)
+RETURNING id;
 
 -- name: SetCaseDocumentsPurgeAfter :exec
 UPDATE documents SET purge_after = $2 WHERE case_id = $1 AND purge_after IS NULL;
@@ -58,12 +58,16 @@ UPDATE documents SET purge_after = $2 WHERE case_id = $1 AND purge_after IS NULL
 UPDATE documents SET purge_after = NULL WHERE case_id = $1;
 
 -- name: InsertCaseStageEventAt :exec
-INSERT INTO case_stage_events (case_id, stage_id, reached_at, changed_by)
-VALUES ($1, $2, $3, $4);
+INSERT INTO case_stage_events (case_id, stage_id, reached_at, changed_by, remark)
+VALUES ($1, $2, $3, $4, sqlc.narg('remark'));
 
 -- name: UpdateCaseFields :exec
-UPDATE cases SET loan_amount = $2, follow_up_date = $3, updated_at = now(), updated_by = $4
-WHERE id = $1;
+-- Once sanctioned, the loan amount is the sanctioned amount (spec 2026-11-25 §5.3),
+-- so an edit moves both and Remaining follows the amount shown.
+UPDATE cases SET loan_amount = sqlc.arg(loan_amount)::numeric(14,2),
+       sanctioned_amount = CASE WHEN sanctioned_amount IS NULL THEN NULL ELSE sqlc.arg(loan_amount)::numeric(14,2) END,
+       follow_up_date = sqlc.arg(follow_up_date), updated_at = now(), updated_by = sqlc.arg(updated_by)
+WHERE id = sqlc.arg(id);
 
 -- name: DropCase :exec
 UPDATE cases
@@ -110,7 +114,8 @@ WHERE (sqlc.narg('stage_id')::bigint IS NULL OR current_stage_id = sqlc.narg('st
 ORDER BY created_at DESC, id DESC;
 
 -- name: CaseStageHistory :many
-SELECT e.id, e.reached_at, s.code AS stage_code, s.name AS stage_name, u.full_name AS changed_by_name
+SELECT e.id, e.reached_at, s.code AS stage_code, s.name AS stage_name, u.full_name AS changed_by_name,
+       COALESCE(e.remark, '')::text AS remark
 FROM case_stage_events e
 JOIN stages s ON s.id = e.stage_id
 JOIN users u ON u.id = e.changed_by
@@ -123,7 +128,7 @@ ORDER BY e.reached_at, e.id;
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
        k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number, k.builder_contact_id,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
-       s.name AS stage_name, s.code AS stage_code,
+       s.name AS stage_name, s.code AS stage_code, COALESCE(s.role, '')::text AS stage_role,
        (SELECT count(*) FROM stages x
          WHERE x.is_active AND x.bank_id IS NOT DISTINCT FROM s.bank_id AND x.sort_order <= s.sort_order)::int AS stage_order,
        (SELECT count(*) FROM stages x
@@ -153,12 +158,12 @@ ORDER BY k.created_at DESC, k.id DESC;
 -- name: AttentionCases :many
 -- Active cases that need attention: the current stage requires a document and
 -- none is uploaded, or the case reached its current stage on or before stuck_before
--- and that stage is not Disbursed. Oldest first.
+-- and that stage is not the disbursement stage (a part-paid case can wait months). Oldest first.
 SELECT * FROM (
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
        k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number, k.builder_contact_id,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
-       s.name AS stage_name, s.code AS stage_code,
+       s.name AS stage_name, s.code AS stage_code, COALESCE(s.role, '')::text AS stage_role,
        (SELECT count(*) FROM stages x
          WHERE x.is_active AND x.bank_id IS NOT DISTINCT FROM s.bank_id AND x.sort_order <= s.sort_order)::int AS stage_order,
        (SELECT count(*) FROM stages x
@@ -180,7 +185,7 @@ WHERE k.status = 'active'
   AND (sqlc.narg('assignee_id')::bigint IS NULL OR k.assignee_id = sqlc.narg('assignee_id')::bigint)
 ) r
 WHERE r.needs_document
-   OR (r.stage_since <= sqlc.arg('stuck_before')::timestamptz AND r.stage_code <> 'disbursed')
+   OR (r.stage_since <= sqlc.arg('stuck_before')::timestamptz AND r.stage_role <> 'disbursement')
 ORDER BY r.stage_since, r.id;
 
 -- name: UpdateCaseProject :one
@@ -223,3 +228,37 @@ SELECT EXISTS (SELECT 1 FROM banks WHERE id = $1);
 
 -- name: ProjectType :one
 SELECT type FROM projects WHERE id = $1;
+
+-- name: CasePaymentState :one
+SELECT count(*)::bigint AS payments, (count(*) FILTER (WHERE kind = 'full') > 0)::boolean AS fully_paid
+FROM case_disbursements WHERE case_id = $1;
+
+-- name: ListCasePayments :many
+SELECT id, amount::text AS amount, paid_on, kind, created_by, created_at
+FROM case_disbursements WHERE case_id = $1 ORDER BY paid_on, id;
+
+-- name: CasePaymentTotals :one
+-- Remaining is worked out from the sanctioned amount, else the loan amount (spec §5.4).
+SELECT COALESCE(sum(d.amount), 0)::numeric(14,2)::text AS total_paid,
+       GREATEST(COALESCE(c.sanctioned_amount, c.loan_amount) - COALESCE(sum(d.amount), 0), 0)::numeric(14,2)::text AS remaining,
+       (COALESCE(sum(d.amount), 0) > COALESCE(c.sanctioned_amount, c.loan_amount))::boolean AS over_paid,
+       (count(*) FILTER (WHERE d.kind = 'full') > 0)::boolean AS fully_paid
+FROM cases c LEFT JOIN case_disbursements d ON d.case_id = c.id
+WHERE c.id = $1
+GROUP BY c.id;
+
+-- name: GetCasePayment :one
+SELECT id, amount::text AS amount, paid_on, kind FROM case_disbursements WHERE id = $1 AND case_id = $2;
+
+-- name: UpdateCasePayment :exec
+UPDATE case_disbursements SET amount = $3, paid_on = $4, kind = $5, updated_at = now(), updated_by = $6
+WHERE id = $1 AND case_id = $2;
+
+-- name: DeleteCasePayment :exec
+DELETE FROM case_disbursements WHERE id = $1 AND case_id = $2;
+
+-- name: SetCaseStatus :exec
+UPDATE cases SET status = $2, updated_at = now(), updated_by = $3 WHERE id = $1;
+
+-- name: CaseStageRole :one
+SELECT COALESCE(s.role, '')::text FROM cases c JOIN stages s ON s.id = c.current_stage_id WHERE c.id = $1;

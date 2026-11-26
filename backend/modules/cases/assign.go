@@ -111,6 +111,9 @@ func (s *Service) load(ctx context.Context, caseID int64) (Case, error) {
 		return Case{}, fmt.Errorf("cases: load: %w", err)
 	}
 	c := toCase(row)
+	if c.PartPayments, err = s.workflows.BankPartPayments(ctx, c.BankID); err != nil {
+		return Case{}, err
+	}
 	typ, err := s.q.ProjectType(ctx, c.ProjectID)
 	if err != nil {
 		return Case{}, fmt.Errorf("cases: load project type: %w", err)

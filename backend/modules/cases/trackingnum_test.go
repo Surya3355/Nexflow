@@ -27,7 +27,7 @@ func TestNormalizeTracking(t *testing.T) {
 func TestLoggedInStoresUpperTracking(t *testing.T) {
 	f := newFixture(t)
 	c := newCase(t, f)
-	got, err := f.svc.ChangeStage(context.Background(), f.actor, c.ID, stageID(t, f, "logged_in"), tracking("ab12"), nil, nil)
+	got, err := f.svc.ChangeStage(context.Background(), f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("ab12")})
 	if err != nil {
 		t.Fatalf("ChangeStage: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestLoggedInStoresUpperTracking(t *testing.T) {
 func TestLoggedInRefusesSymbols(t *testing.T) {
 	f := newFixture(t)
 	c := newCase(t, f)
-	_, err := f.svc.ChangeStage(context.Background(), f.actor, c.ID, stageID(t, f, "logged_in"), tracking("ab-12"), nil, nil)
+	_, err := f.svc.ChangeStage(context.Background(), f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("ab-12")})
 	if !errors.Is(err, ErrInvalidTracking) {
 		t.Fatalf("err = %v, want ErrInvalidTracking", err)
 	}
@@ -53,10 +53,10 @@ func TestDuplicateTrackingIgnoresCase(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	first, second := newCase(t, f), newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, first.ID, stageID(t, f, "logged_in"), tracking("AB12"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, first.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("AB12")}); err != nil {
 		t.Fatalf("first: %v", err)
 	}
-	if _, err := f.svc.ChangeStage(ctx, f.actor, second.ID, stageID(t, f, "logged_in"), tracking("ab12"), nil, nil); !errors.Is(err, ErrDuplicateTracking) {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, second.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("ab12")}); !errors.Is(err, ErrDuplicateTracking) {
 		t.Fatalf("err = %v, want ErrDuplicateTracking", err)
 	}
 }
@@ -65,7 +65,7 @@ func TestSearchTrackingLowercase(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	c := newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), tracking("AB12"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("AB12")}); err != nil {
 		t.Fatalf("ChangeStage: %v", err)
 	}
 	groups, err := f.svc.Search(ctx, SearchQuery{Text: "ab12"})

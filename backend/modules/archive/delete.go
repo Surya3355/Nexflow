@@ -95,6 +95,9 @@ func (s *Service) DeleteCase(ctx context.Context, actor access.User, caseID int6
 	if err := q.DeleteCaseDocuments(txCtx, caseID); err != nil {
 		return fmt.Errorf("archive: documents: %w", err)
 	}
+	if err := q.DeleteCasePayments(txCtx, caseID); err != nil {
+		return fmt.Errorf("archive: payments: %w", err)
+	}
 	if err := q.DeleteCaseStageEvents(txCtx, caseID); err != nil {
 		return fmt.Errorf("archive: stage events: %w", err)
 	}

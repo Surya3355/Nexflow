@@ -44,13 +44,14 @@ type AuditLog struct {
 }
 
 type Bank struct {
-	ID        int64
-	Name      string
-	IsActive  bool
-	CreatedAt pgtype.Timestamptz
-	CreatedBy pgtype.Int8
-	UpdatedAt pgtype.Timestamptz
-	UpdatedBy pgtype.Int8
+	ID           int64
+	Name         string
+	IsActive     bool
+	CreatedAt    pgtype.Timestamptz
+	CreatedBy    pgtype.Int8
+	UpdatedAt    pgtype.Timestamptz
+	UpdatedBy    pgtype.Int8
+	PartPayments bool
 }
 
 type Case struct {
@@ -73,8 +74,6 @@ type Case struct {
 	InterestType       pgtype.Text
 	TenureMonths       pgtype.Int4
 	SanctionDate       pgtype.Date
-	DisbursedAmount    pgtype.Numeric
-	DisbursementDate   pgtype.Date
 	CreatedAt          pgtype.Timestamptz
 	CreatedBy          pgtype.Int8
 	UpdatedAt          pgtype.Timestamptz
@@ -94,12 +93,25 @@ type CaseAssignmentEvent struct {
 	ChangedAt  pgtype.Timestamptz
 }
 
+type CaseDisbursement struct {
+	ID        int64
+	CaseID    int64
+	Amount    pgtype.Numeric
+	PaidOn    pgtype.Date
+	Kind      string
+	CreatedAt pgtype.Timestamptz
+	CreatedBy pgtype.Int8
+	UpdatedAt pgtype.Timestamptz
+	UpdatedBy pgtype.Int8
+}
+
 type CaseStageEvent struct {
 	ID        int64
 	CaseID    int64
 	StageID   int64
 	ReachedAt pgtype.Timestamptz
 	ChangedBy int64
+	Remark    pgtype.Text
 }
 
 type Customer struct {
@@ -217,6 +229,7 @@ type Stage struct {
 	CreatedBy        pgtype.Int8
 	UpdatedAt        pgtype.Timestamptz
 	UpdatedBy        pgtype.Int8
+	Role             pgtype.Text
 }
 
 type User struct {

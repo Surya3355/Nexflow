@@ -32,7 +32,9 @@ type Bank struct {
 	ID           int64
 	Name         string
 	IsActive     bool
-	HasOwnStages bool // false means the bank uses the standard stages
+	HasOwnStages bool   // false means the bank uses the standard stages
+	PartPayments bool   // the bank pays some loans in parts (spec 2026-11-25 §5.2)
+	StageList    string // StageListStandard or StageListHDFC
 }
 
 // Stage is one step of the loan flow. BankID nil means a standard stage.
@@ -43,6 +45,7 @@ type Stage struct {
 	Name             string
 	SortOrder        int
 	RequiresDocument bool
+	Role             string // "" or one of the Role constants
 }
 
 // DropdownValue is one admin-maintained choice, such as a drop reason.
@@ -73,7 +76,8 @@ func (s *Service) ListBanks(ctx context.Context) ([]Bank, error) {
 	}
 	out := make([]Bank, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, Bank{ID: r.ID, Name: r.Name, IsActive: r.IsActive, HasOwnStages: r.HasOwnStages})
+		out = append(out, Bank{ID: r.ID, Name: r.Name, IsActive: r.IsActive, HasOwnStages: r.HasOwnStages,
+			PartPayments: r.PartPayments, StageList: stageListOf(r.HasOwnStages)})
 	}
 	return out, nil
 }
@@ -90,7 +94,7 @@ func (s *Service) CreateBank(ctx context.Context, actor access.User, name string
 	if err != nil {
 		return Bank{}, fmt.Errorf("workflows: insert bank: %w", err)
 	}
-	b := Bank{ID: row.ID, Name: row.Name, IsActive: row.IsActive}
+	b := Bank{ID: row.ID, Name: row.Name, IsActive: row.IsActive, PartPayments: row.PartPayments, StageList: StageListStandard}
 	if err := s.audit(ctx, actor, "bank.created", "bank", b.ID); err != nil {
 		return Bank{}, err
 	}
@@ -118,7 +122,7 @@ func (s *Service) RenameBank(ctx context.Context, actor access.User, id int64, n
 	case err != nil:
 		return Bank{}, fmt.Errorf("workflows: rename bank: %w", err)
 	}
-	b := Bank{ID: row.ID, Name: row.Name, IsActive: row.IsActive}
+	b := Bank{ID: row.ID, Name: row.Name, IsActive: row.IsActive, PartPayments: row.PartPayments}
 	if err := s.audit(ctx, actor, "bank.renamed", "bank", b.ID); err != nil {
 		return Bank{}, err
 	}
@@ -140,7 +144,7 @@ func (s *Service) StagesFor(ctx context.Context, bankID int64) ([]Stage, error) 
 		out := make([]Stage, 0, len(std))
 		for _, r := range std {
 			out = append(out, Stage{ID: r.ID, Code: r.Code, Name: r.Name,
-				SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument})
+				SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument, Role: r.Role})
 		}
 		return out, nil
 	}
@@ -148,7 +152,7 @@ func (s *Service) StagesFor(ctx context.Context, bankID int64) ([]Stage, error) 
 	for _, r := range rows {
 		id := r.BankID.Int64
 		out = append(out, Stage{ID: r.ID, BankID: &id, Code: r.Code, Name: r.Name,
-			SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument})
+			SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument, Role: r.Role})
 	}
 	return out, nil
 }
@@ -262,7 +266,7 @@ func (s *Service) StandardStages(ctx context.Context) ([]Stage, error) {
 	out := make([]Stage, 0, len(std))
 	for _, r := range std {
 		out = append(out, Stage{ID: r.ID, Code: r.Code, Name: r.Name,
-			SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument})
+			SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument, Role: r.Role})
 	}
 	return out, nil
 }

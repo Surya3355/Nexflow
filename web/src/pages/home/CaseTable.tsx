@@ -12,7 +12,7 @@ const grid =
   "grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 px-4 py-3 min-[760px]:grid-cols-[1.5fr_0.7fr_1fr_1.5fr_0.9fr_0.8fr_0.9fr] min-[760px]:items-center";
 
 function StageCell({ r }: { r: ListRow }) {
-  const done = r.status === "completed" || r.stage_code === "disbursed";
+  const done = r.status === "completed";
   return (
     <span className="col-span-2 min-[760px]:col-span-1 min-[760px]:order-none order-3">
       <span className="mb-1 block"><ProgressBar done={r.stage_order} total={r.stage_count} /></span>

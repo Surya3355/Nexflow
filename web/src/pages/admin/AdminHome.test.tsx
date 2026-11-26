@@ -65,7 +65,7 @@ describe("Admin", () => {
   it("Banks tab shows which banks use their own stages", async () => {
     setup("#banks");
     const hdfc = (await screen.findByText("HDFC")).closest("tr")!;
-    expect(hdfc).toHaveTextContent("Own stages");
+    expect(hdfc).toHaveTextContent("HDFC stages");
     expect(screen.getByText("SBI").closest("tr")!).toHaveTextContent("Standard stages");
   });
 

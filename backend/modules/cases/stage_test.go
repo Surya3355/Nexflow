@@ -36,7 +36,7 @@ func TestForwardMoveAddsDatedEvent(t *testing.T) {
 	c := newCase(t, f)
 
 	before := time.Now().Add(-time.Second)
-	got, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), tracking("APP1001"), nil, nil)
+	got, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("APP1001")})
 	if err != nil {
 		t.Fatalf("ChangeStage: %v", err)
 	}
@@ -58,13 +58,13 @@ func TestBackwardMoveAllowedAndRecorded(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	c := newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), tracking("APP2001"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("APP2001")}); err != nil {
 		t.Fatalf("forward: %v", err)
 	}
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "under_sanction"), nil, nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "under_sanction")}); err != nil {
 		t.Fatalf("forward 2: %v", err)
 	}
-	got, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), nil, nil, nil)
+	got, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in")})
 	if err != nil {
 		t.Fatalf("backward: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestBackwardMoveAllowedAndRecorded(t *testing.T) {
 func TestMoveToLoggedInRequiresTrackingNumber(t *testing.T) {
 	f := newFixture(t)
 	c := newCase(t, f)
-	_, err := f.svc.ChangeStage(context.Background(), f.actor, c.ID, stageID(t, f, "logged_in"), nil, nil, nil)
+	_, err := f.svc.ChangeStage(context.Background(), f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in")})
 	if !errors.Is(err, ErrTrackingRequired) {
 		t.Fatalf("err = %v, want ErrTrackingRequired", err)
 	}
@@ -94,10 +94,10 @@ func TestMoveToDisbursedSetsStatusCompleted(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	c := newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), tracking("APP3001"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("APP3001")}); err != nil {
 		t.Fatalf("logged_in: %v", err)
 	}
-	got, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "disbursed"), nil, nil, nil)
+	got, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "disbursed"), Payment: &PaymentInput{Amount: "1000000", Kind: "full"}})
 	if err != nil {
 		t.Fatalf("disbursed: %v", err)
 	}
@@ -110,13 +110,13 @@ func TestStageHistoryNeverOverwritten(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	c := newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), tracking("APP4001"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("APP4001")}); err != nil {
 		t.Fatalf("move 1: %v", err)
 	}
 	var firstAt time.Time
 	mustScan(t, f.pool.QueryRow(ctx,
 		`SELECT reached_at FROM case_stage_events WHERE case_id=$1 ORDER BY id LIMIT 1`, c.ID), &firstAt)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "under_sanction"), nil, nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "under_sanction")}); err != nil {
 		t.Fatalf("move 2: %v", err)
 	}
 	if n := f.count(t, `SELECT count(*) FROM case_stage_events WHERE case_id=$1`, c.ID); n != 3 {
@@ -133,7 +133,7 @@ func TestStageHistoryNeverOverwritten(t *testing.T) {
 func TestEachStageChangeWritesAuditEntry(t *testing.T) {
 	f := newFixture(t)
 	c := newCase(t, f)
-	if _, err := f.svc.ChangeStage(context.Background(), f.actor, c.ID, stageID(t, f, "logged_in"), tracking("APP5001"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(context.Background(), f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("APP5001")}); err != nil {
 		t.Fatalf("ChangeStage: %v", err)
 	}
 	for _, e := range f.rec.entries {

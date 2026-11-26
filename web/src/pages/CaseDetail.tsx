@@ -14,12 +14,14 @@ import { ProgressBar } from "../components/ProgressBar";
 import { ProjectPicker } from "../components/ProjectPicker";
 import { alertBox, btn, btnDanger, btnPrimary, btnSmall, card, input, istDate, label, muted, page, rupees, warnBox } from "../components/ui";
 import { MoveStageDialog } from "./case/MoveStageDialog";
+import { Disbursements } from "./case/Disbursements";
+import type { Role } from "../api/types";
 import { ContactLog } from "./lead/ContactLog";
 
 type Moving = { target: Stage | null } | null;
 
 /** One case: progress through the bank's stages, documents, assignee and drop (spec §5.4). */
-export function CaseDetail() {
+export function CaseDetail({ role = "employee" }: { role?: Role }) {
   const { id } = useParams();
   const caseId = Number(id);
   const navigate = useNavigate();
@@ -157,6 +159,7 @@ export function CaseDetail() {
               {history.map((e) => (
                 <li key={e.id} className="rounded-lg bg-slate-50 px-3 py-1.5">
                   <span className="font-medium">{e.stage_name}</span> · {istDate(e.reached_at, true)} · {e.changed_by}
+                  {e.remark && <span className="block text-slate-600">“{e.remark}”</span>}
                 </li>
               ))}
             </ol>
@@ -164,6 +167,8 @@ export function CaseDetail() {
         </section>
 
         <aside className="space-y-4">
+          <Disbursements caseData={c} atDisbursement={current?.role === "disbursement"} canCorrect={role === "admin" || role === "manager"}
+            onChanged={() => { load().catch(() => setError("Could not reload this case.")); }} />
           <section className={card}>
             <div className="flex items-center justify-between">
               <h2 className="font-semibold">Documents</h2>

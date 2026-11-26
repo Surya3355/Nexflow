@@ -52,7 +52,7 @@ func TestSearchByTrackingNumber(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	c := newCase(t, f)
-	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, stageID(t, f, "logged_in"), tracking("FIND42"), nil, nil); err != nil {
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("FIND42")}); err != nil {
 		t.Fatalf("set tracking: %v", err)
 	}
 	groups, err := f.svc.Search(ctx, SearchQuery{Text: "FIND42"})

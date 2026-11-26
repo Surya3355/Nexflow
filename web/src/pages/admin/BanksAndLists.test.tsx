@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BanksAndLists } from "./BanksAndLists";
-import { mockApi } from "../../test/fetchMock";
+import { bodyOf, mockApi } from "../../test/fetchMock";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -40,5 +40,42 @@ describe("BanksAndLists projects", () => {
     await userEvent.click(await screen.findByRole("button", { name: "+ Add project" }));
     expect(screen.getByRole("dialog", { name: "Add a project" })).toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: "Type" })).toBeInTheDocument();
+  });
+});
+
+describe("BanksAndLists bank settings", () => {
+  const banks = [
+    { id: 1, name: "HDFC", has_own_stages: true, stage_list: "hdfc", part_payments: true },
+    { id: 2, name: "SBI", has_own_stages: false, stage_list: "standard", part_payments: false },
+  ];
+
+  it("shows each bank's stage list and offers HDFC stages only to a standard bank", async () => {
+    mockApi({ ...base, "GET /api/config/banks": { body: banks } });
+    render(<BanksAndLists />);
+    const hdfc = await screen.findByRole("row", { name: /^HDFC/ });
+    expect(hdfc).toHaveTextContent("HDFC stages");
+    expect(within(hdfc).queryByRole("button", { name: /Use HDFC stages/ })).toBeNull();
+    const sbi = screen.getByRole("row", { name: /SBI/ });
+    expect(sbi).toHaveTextContent("Standard stages");
+    expect(within(sbi).getByRole("button", { name: "Use HDFC stages for SBI" })).toBeInTheDocument();
+  });
+
+  it("switches a bank to HDFC stages after a confirm", async () => {
+    const spy = mockApi({ ...base, "GET /api/config/banks": { body: banks }, "PATCH /api/admin/banks/2": { status: 204 } });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<BanksAndLists />);
+    await userEvent.click(await screen.findByRole("button", { name: "Use HDFC stages for SBI" }));
+    expect(confirm).toHaveBeenCalledWith("Move this bank's cases to the HDFC stages? This cannot be undone.");
+    await waitFor(() => expect(bodyOf(spy, "PATCH /api/admin/banks/2")).toEqual({ stage_list: "hdfc" }));
+  });
+
+  it("part payments checkbox saves per bank", async () => {
+    const spy = mockApi({ ...base, "GET /api/config/banks": { body: banks }, "PATCH /api/admin/banks/2": { status: 204 } });
+    render(<BanksAndLists />);
+    const box = await screen.findByRole("checkbox", { name: "Part payments: SBI" });
+    expect(box).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Part payments: HDFC" })).toBeChecked();
+    await userEvent.click(box);
+    await waitFor(() => expect(bodyOf(spy, "PATCH /api/admin/banks/2")).toEqual({ part_payments: true }));
   });
 });

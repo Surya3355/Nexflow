@@ -71,11 +71,11 @@ func newCaseAt(t *testing.T, f fixture, amount string, tracking string, through 
 		if code == "sanctioned" {
 			sanction = &cases.SanctionDetails{Amount: amount, RatePercent: "9.25", InterestType: "floating", TenureMonths: 240}
 		}
-		var disb *cases.DisbursementDetails
+		var disb *cases.PaymentInput
 		if code == "disbursed" {
-			disb = &cases.DisbursementDetails{Amount: amount}
+			disb = &cases.PaymentInput{Amount: amount, Kind: cases.PaymentFull}
 		}
-		if _, err := f.cases.ChangeStage(ctx, f.actor, c.ID, stage(t, f, code), tn, sanction, disb); err != nil {
+		if _, err := f.cases.ChangeStage(ctx, f.actor, c.ID, cases.StageMove{ToStageID: stage(t, f, code), TrackingNumber: tn, Sanction: sanction, Payment: disb}); err != nil {
 			t.Fatalf("move to %s: %v", code, err)
 		}
 	}
@@ -158,7 +158,7 @@ func TestCasesByStageCountsCurrentStageOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dashboard: %v", err)
 	}
-	if d.CasesByStage["received"] != 1 || d.CasesByStage["logged_in"] != 1 {
+	if byCode(d)["received"] != 1 || byCode(d)["logged_in"] != 1 {
 		t.Fatalf("cases by stage = %v, want received=1 logged_in=1 (dropped excluded)", d.CasesByStage)
 	}
 }
@@ -229,7 +229,7 @@ func TestDashboardBankFilter(t *testing.T) {
 	if d.NewCases != 1 || d.NewCasesToday != 1 || d.Sanctions.Count != 0 || d.StageMovesToday != 0 {
 		t.Fatalf("SBI only: %+v", d)
 	}
-	if d.CasesByStage["received"] != 1 || d.CasesByStage["sanctioned"] != 0 {
+	if byCode(d)["received"] != 1 || byCode(d)["sanctioned"] != 0 {
 		t.Fatalf("SBI by stage = %v", d.CasesByStage)
 	}
 	if d.NewCustomers != 1 {
