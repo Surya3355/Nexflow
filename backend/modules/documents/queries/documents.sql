@@ -29,3 +29,12 @@ WHERE c.id = $1;
 -- name: ListCaseDocuments :many
 SELECT id, case_id, stage_id, label, file_name, content_type, size_bytes, storage_key, uploaded_at, uploaded_by
 FROM documents WHERE case_id = $1 ORDER BY label, id;
+
+-- name: CaseLabelTaken :one
+SELECT EXISTS (SELECT 1 FROM documents WHERE case_id = $1 AND label = $2);
+
+-- name: CaseStageForDocument :one
+SELECT current_stage_id, status FROM cases WHERE id = $1;
+
+-- name: DeleteDocument :one
+DELETE FROM documents WHERE id = $1 RETURNING case_id, label, storage_key;

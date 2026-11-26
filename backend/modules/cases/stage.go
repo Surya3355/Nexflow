@@ -18,6 +18,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// noOpenQueries refuses a change while the case has bank queries not yet
+// resolved: moving forward or completing the case (spec 2026-11-26 bank queries §5.3).
+func noOpenQueries(ctx context.Context, q *casesdb.Queries, caseID int64) error {
+	n, err := q.CountOpenCaseQueries(ctx, caseID)
+	if err != nil {
+		return fmt.Errorf("cases: open queries: %w", err)
+	}
+	if n > 0 {
+		return ErrOpenQueries
+	}
+	return nil
+}
+
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
@@ -32,6 +45,7 @@ var (
 	ErrDuplicateTracking      = errors.New("cases: tracking number is already used by a live case")
 	ErrSanctionAmountRequired = errors.New("cases: enter the sanctioned amount")
 	ErrRemarkTooLong          = errors.New("cases: remark must be 500 characters or fewer")
+	ErrOpenQueries            = errors.New("cases: resolve the open bank queries first")
 )
 
 // maxRemark is the longest remark a stage move can carry.
@@ -113,6 +127,15 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID int
 	if m.OfficerID != 0 && to.OfficerTeam == "" {
 		return Case{}, ErrOfficerInvalid
 	}
+	// Open bank queries stop the case moving forward; back is always allowed
+	// (spec 2026-11-26 bank queries §5.3).
+	for _, cur := range stages {
+		if cur.ID == locked.CurrentStageID && to.SortOrder > cur.SortOrder {
+			if err := noOpenQueries(txCtx, q, caseID); err != nil {
+				return Case{}, err
+			}
+		}
+	}
 
 	var newTracking pgtype.Text
 	if m.TrackingNumber != nil {
@@ -159,6 +182,9 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID int
 	status := "active"
 	if fullyPaid {
 		status = "completed"
+		if err := noOpenQueries(txCtx, q, caseID); err != nil {
+			return Case{}, err
+		}
 	}
 	if err := q.SetCaseStage(txCtx, casesdb.SetCaseStageParams{
 		ID: caseID, CurrentStageID: to.ID, Status: status,

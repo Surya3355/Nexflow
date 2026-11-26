@@ -217,3 +217,46 @@ export type DashboardData = {
   sanctions: StageCount;
   disbursements: StageCount;
 };
+
+/** One step of a bank query (spec 2026-11-26 bank queries §5.2). */
+export interface QueryEvent {
+  query_id: number;
+  number: number;
+  body: string;
+  kind: "raised" | "edited" | "sent" | "accepted" | "rejected" | "proof_removed" | "removed";
+  note: string;
+  at: string;
+  by: string;
+  document_id: number | null;
+  /** A proof file was sent with this step but has since been purged or removed. */
+  file_deleted: boolean;
+}
+
+/** A query the bank raised on a case. */
+export interface BankQuery {
+  id: number;
+  number: number;
+  body: string;
+  raised_on: string;
+  due_on: string | null;
+  assignee: { id: number; name: string };
+  status: "open" | "sent" | "resolved";
+  /** What was sent to the bank, while the query waits for the bank's answer. */
+  proof: {
+    note: string;
+    document: { id: number; label: string; file_name: string } | null;
+    /** The file sent is gone (purged or removed); file_name still names it. */
+    file_deleted?: boolean;
+    file_name?: string;
+    at: string;
+    by: string;
+  } | null;
+  events: QueryEvent[];
+}
+
+export interface CaseQueries {
+  queries: BankQuery[];
+  open_count: number;
+  /** Every query event of the case, removed queries included, for the case history. */
+  events: QueryEvent[];
+}

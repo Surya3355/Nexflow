@@ -6,6 +6,7 @@ import (
 
 	"github.com/Surya3355/nexflow/backend/modules/access"
 	"github.com/Surya3355/nexflow/backend/modules/archive"
+	"github.com/Surya3355/nexflow/backend/modules/bankqueries"
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
@@ -29,6 +30,7 @@ type Deps struct {
 	Reports   *reports.Service
 	Leads     *leads.Service
 	Officers  *officers.Service
+	Queries   *bankqueries.Service
 }
 
 // NewRouter returns the full API under /api. Login and the download link are
@@ -116,6 +118,14 @@ func NewRouter(d Deps) http.Handler {
 		r.Delete("/api/officers/{id}", h.removeOfficer)
 		r.Get("/api/cases/{id}/officers", h.caseOfficers)
 		r.Post("/api/cases/{id}/officers", h.setCaseOfficer)
+		r.Get("/api/cases/{id}/queries", h.caseQueries)
+		r.Post("/api/cases/{id}/queries", h.addQuery)
+		r.Put("/api/queries/{id}", h.editQuery)
+		r.Delete("/api/queries/{id}", h.removeQuery)
+		r.Post("/api/queries/{id}/send", h.sendQueryProof)
+		r.Post("/api/queries/{id}/accept", h.acceptQuery)
+		r.Post("/api/queries/{id}/reject", h.rejectQuery)
+		r.Post("/api/queries/{id}/remove-proof", h.removeQueryProof)
 
 		r.Get("/api/search", h.search)
 

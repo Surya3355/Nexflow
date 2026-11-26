@@ -19,6 +19,7 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/access"
 	"github.com/Surya3355/nexflow/backend/modules/alerts"
 	"github.com/Surya3355/nexflow/backend/modules/archive"
+	"github.com/Surya3355/nexflow/backend/modules/bankqueries"
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
@@ -68,14 +69,16 @@ func newEnv(t *testing.T) *env {
 
 	e := &env{t: t, pool: pool, clients: map[access.Role]*http.Client{}, ids: map[access.Role]int64{},
 		queue: queue, arch: arch, store: store, reasons: map[string]int64{}, stage: map[string]int64{}}
+	docs := documents.NewService(pool, store, rec)
 	h := apihttp.NewRouter(apihttp.Deps{
 		Auth: access.NewHandler(accessSvc, sm), Access: accessSvc, Workflows: wf,
 		Customers: customers.NewService(pool, rec), Cases: caseSvc,
-		Documents: documents.NewService(pool, store, rec),
+		Documents: docs,
 		Linker:    documents.NewLinker([]byte("acceptance-secret-0123456789abcdef")),
 		Archive:   arch, Reports: reports.NewService(pool),
 		Leads:    leads.NewService(pool, rec),
 		Officers: officers.NewService(pool, wf, rec),
+		Queries:  bankqueries.NewService(pool, docs, rec),
 	})
 	e.srv = httptest.NewServer(h)
 	t.Cleanup(e.srv.Close)

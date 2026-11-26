@@ -92,6 +92,13 @@ func (s *Service) DeleteCase(ctx context.Context, actor access.User, caseID int6
 	if err := q.DeleteCaseAlerts(txCtx, pgtype.Int8{Int64: caseID, Valid: true}); err != nil {
 		return fmt.Errorf("archive: alerts: %w", err)
 	}
+	// Query events point at documents, so they go first.
+	if err := q.DeleteCaseQueryEvents(txCtx, caseID); err != nil {
+		return fmt.Errorf("archive: query events: %w", err)
+	}
+	if err := q.DeleteCaseQueries(txCtx, caseID); err != nil {
+		return fmt.Errorf("archive: queries: %w", err)
+	}
 	if err := q.DeleteCaseDocuments(txCtx, caseID); err != nil {
 		return fmt.Errorf("archive: documents: %w", err)
 	}

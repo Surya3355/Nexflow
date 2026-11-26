@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bank queries on the case page</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f8fafc; color: #0f172a; font: 15px/1.45 Inter, system-ui, sans-serif; }
+  a { color: #1d4ed8; text-decoration: none; }
+  .mock { background: #fffbeb; border: 1px dashed #f59e0b; border-radius: 10px; padding: 10px 14px; font-size: 14px; color: #78350f; }
+  header { background: #fff; border-bottom: 1px solid #e2e8f0; }
+  header .in { max-width: 1320px; margin: 0 auto; padding: 12px 16px; display: flex; gap: 24px; align-items: center; }
+  header nav { display: flex; gap: 18px; font-size: 14px; }
+  main { max-width: 1320px; margin: 0 auto; padding: 20px 16px 64px; display: flex; flex-direction: column; gap: 16px; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
+  h1 { margin: 0; font-size: 24px; } h2 { margin: 0 0 8px; font-size: 16px; }
+  .muted { color: #64748b; font-size: 14px; }
+  .small { font-size: 13px; color: #64748b; margin: 4px 0 0; }
+  .bar { margin-top: 16px; height: 8px; border-radius: 4px; background: #e2e8f0; }
+  .bar i { display: block; width: 36%; height: 8px; border-radius: 4px; background: #2563eb; }
+  .layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
+  /* Inside Progress: stages on the left, queries in the empty space on the right */
+  .progress-in { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); align-items: start; }
+  .steps { list-style: none; margin: 0; padding: 0; }
+  .steps li { display: flex; gap: 12px; padding: 6px 0; }
+  .dot { width: 24px; height: 24px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 12px; border: 2px solid #e2e8f0; }
+  .done .dot { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .now .dot { border-color: #2563eb; color: #1d4ed8; font-weight: 700; }
+  .todo { color: #94a3b8; }
+  .btn { display: inline-block; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; padding: 6px 12px; font: inherit; font-size: 14px; color: #0f172a; cursor: pointer; }
+  .btn.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .btn.ok { background: #15803d; border-color: #15803d; color: #fff; }
+  .btn.danger { border-color: #fecaca; color: #b91c1c; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .alert { margin: 10px 0 0; border-radius: 8px; background: #fef2f2; color: #b91c1c; padding: 8px 12px; font-size: 14px; }
+  .queries { border: 2px solid #fca5a5; border-radius: 12px; padding: 14px; background: #fff; }
+  .qhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .count { margin-left: 6px; border-radius: 999px; background: #b91c1c; color: #fff; padding: 2px 8px; font-size: 12px; font-weight: 600; }
+  .q { margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; }
+  .q .top { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
+  .chip { flex: none; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 600; }
+  .chip.open { background: #fffbeb; color: #92400e; }
+  .chip.sent { background: #eff6ff; color: #1d4ed8; }
+  .late { color: #b91c1c; font-weight: 600; }
+  .acts { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+  details.proof > summary { list-style: none; display: inline-block; }
+  details.proof > summary::-webkit-details-marker { display: none; }
+  details.proof[open] .lbl-view, details.proof:not([open]) .lbl-hide { display: none; }
+  .proofbox { margin-top: 8px; border-radius: 8px; background: #f8fafc; padding: 10px 12px; font-size: 14px; }
+  .proofbox p { margin: 0 0 6px; }
+  aside { display: flex; flex-direction: column; gap: 16px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+  dt { color: #64748b; } dd { margin: 0; font-weight: 600; }
+  dialog { border: 0; border-radius: 14px; padding: 20px; width: min(420px, 92vw); }
+  dialog::backdrop { background: rgba(15, 23, 42, .4); }
+  dialog form { display: flex; flex-direction: column; gap: 12px; }
+  label { font-size: 14px; color: #475569; }
+  label input, label select, label textarea { display: block; width: 100%; margin-top: 4px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; font: inherit; color: #0f172a; background: #fff; }
+
+  /* Phone: one column; queries come first, above the stages */
+  @media (max-width: 899px) {
+    .layout { grid-template-columns: 1fr; }
+    .progress-in { grid-template-columns: 1fr; }
+    .progress-in .queries { order: -1; }
+    .acts .btn { padding: 11px 14px; }
+  }
+</style>
+</head>
+<body>
+<header><div class="in"><strong style="font-size:18px">Nexflow</strong>
+  <nav><a href="#">Home</a><a href="#">Projects</a><a href="#">Officers</a><a href="#">Reports</a></nav></div></header>
+
+<main>
+  <p class="mock">Mockup only. Names and numbers are made up; buttons open the dialogs but save nothing.
+    The <b>Bank queries</b> box sits inside Progress, in the empty space to the right of the stages.
+    Make the window narrow (or open on a phone) to see the phone layout: queries move above the stages.</p>
+
+  <section class="card">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px">
+      <div><h1>[Customer name]</h1><p class="muted" style="margin:4px 0 0"><a href="#"><b>98xxxxxx10</b></a> · HDFC · Home loan</p></div>
+      <div style="text-align:right"><div style="font-size:20px;font-weight:700">₹45,00,000</div><div class="muted">At DOVR</div></div>
+    </div>
+    <div class="bar"><i></i></div>
+  </section>
+
+  <div class="layout">
+    <section class="card">
+      <h2>Progress</h2>
+      <div class="progress-in">
+        <div>
+          <ol class="steps">
+            <li class="done"><span class="dot">✓</span><span>Received<span class="small" style="display:block">18 Nov 2026 · Ravi</span></span></li>
+            <li class="done"><span class="dot">✓</span><span>Link sent<span class="small" style="display:block">19 Nov 2026 · Ravi</span></span></li>
+            <li class="done"><span class="dot">✓</span><span>Application submitted<span class="small" style="display:block">21 Nov 2026 · Anita</span></span></li>
+            <li class="now"><span class="dot">4</span><span><b>DOVR</b><span class="small" style="display:block">23 Nov 2026 · Anita</span></span></li>
+            <li class="todo"><span class="dot">5</span><span>Appraisal</span></li>
+            <li class="todo"><span class="dot">6</span><span>Sanctioned</span></li>
+            <li class="todo"><span class="dot">7</span><span>Upload documents</span></li>
+            <li class="todo"><span class="dot">8</span><span>Under fixing</span></li>
+            <li class="todo"><span class="dot">9</span><span>Fixed</span></li>
+            <li class="todo"><span class="dot">10</span><span>Signing</span></li>
+            <li class="todo"><span class="dot">11</span><span>Disbursement</span></li>
+          </ol>
+          <div class="acts">
+            <button class="btn primary" disabled>Move to Appraisal →</button>
+            <button class="btn">Other stage…</button>
+          </div>
+          <p class="alert">Resolve the 2 bank queries first. Moving back or dropping is still allowed.</p>
+          <details style="margin-top:12px"><summary class="muted" style="cursor:pointer">Full history (6)</summary>
+            <p class="small">Query added: Latest 3 months salary slips · 24 Nov · Ravi</p>
+            <p class="small">Query sent to bank: Builder NOC copy · 25 Nov · Anita</p>
+          </details>
+        </div>
+
+        <section class="queries" aria-label="Bank queries">
+          <div class="qhead">
+            <h2 style="margin:0">Bank queries <span class="count">2 open</span></h2>
+            <button class="btn" onclick="add.showModal()">+ Add query</button>
+          </div>
+
+          <div class="q">
+            <div class="top"><strong>Latest 3 months salary slips</strong><span class="chip open">Open</span></div>
+            <p class="small">Raised 24 Nov · Ravi · <span class="late">Due 25 Nov, overdue</span></p>
+            <div class="acts">
+              <button class="btn primary" onclick="send.showModal()">Send proof</button>
+              <button class="btn danger" onclick="confirm('Remove this query? It stays in the case history.')">Remove</button>
+            </div>
+          </div>
+
+          <div class="q">
+            <div class="top"><strong>Builder NOC copy</strong><span class="chip sent">Sent to bank</span></div>
+            <p class="small">Raised 22 Nov · Anita · Sent 25 Nov, waiting for the bank</p>
+            <div class="acts">
+              <button class="btn ok" onclick="confirm('Bank accepted the proof? The query will be marked resolved.')">Bank accepted</button>
+              <button class="btn" onclick="reject.showModal()">Bank rejected</button>
+            </div>
+            <details class="proof" style="margin-top:8px">
+              <summary class="btn"><span class="lbl-view">View proof ▼</span><span class="lbl-hide">Hide proof ▲</span></summary>
+              <div class="proofbox">
+                <p>“Emailed NOC from builder to the DOVR officer.”</p>
+                <p><a href="#">noc-builder.pdf</a> <span class="muted">· 25 Nov · Anita</span></p>
+                <button class="btn danger" onclick="confirm('Remove this proof? The query goes back to Open.')">Remove proof</button>
+              </div>
+            </details>
+          </div>
+
+          <details style="margin-top:10px"><summary class="muted" style="cursor:pointer">Resolved (1)</summary>
+            <p style="margin:6px 0 0;font-size:14px">PAN card copy · <span style="color:#166534">Accepted 20 Nov</span></p>
+          </details>
+        </section>
+      </div>
+    </section>
+
+    <aside>
+      <section class="card"><h2>Disbursements</h2><p class="muted" style="margin:0">Shown when the case reaches Disbursement.</p></section>
+      <section class="card"><h2>Bank officers</h2>
+        <p style="margin:0;font-size:14px">TDEP officer: [Name] · <a href="#">98xxxxxx21</a></p>
+        <p style="margin:6px 0 0;font-size:14px">DOVR officer: <span style="color:#b45309">Officer not set</span></p></section>
+      <section class="card"><h2>Documents</h2>
+        <p style="margin:0;font-size:14px"><a href="#">Query 2 proof</a> <span class="muted">· noc-builder.pdf</span></p></section>
+      <section class="card"><h2>Details</h2>
+        <dl><dt>Project</dt><dd>[Project]</dd><dt>Flat no.</dt><dd>B-402</dd><dt>Assigned to</dt><dd>Ravi</dd><dt>Opened</dt><dd>18 Nov 2026</dd></dl></section>
+    </aside>
+  </div>
+</main>
+
+<dialog id="add"><form method="dialog">
+  <h2>Add bank query</h2>
+  <label>What did the bank ask for?<textarea rows="3">Latest 3 months salary slips</textarea></label>
+  <label>Raised on<input type="date" value="2026-11-24"></label>
+  <label>Assign to<select><option>Ravi</option><option>Anita</option></select></label>
+  <label>Due date (optional)<input type="date" value="2026-11-25"></label>
+  <div class="acts"><button class="btn primary">Add query</button><button class="btn">Cancel</button></div>
+</form></dialog>
+
+<dialog id="send"><form method="dialog">
+  <h2>Send proof to bank</h2>
+  <p class="muted" style="margin:0">Latest 3 months salary slips</p>
+  <label>Note<textarea rows="3">Uploaded Aug–Oct slips on the HDFC portal.</textarea></label>
+  <label>File or photo (PDF, JPG, PNG, up to 10 MB)<input type="file" accept="application/pdf,image/jpeg,image/png" style="border:0;padding:4px 0"></label>
+  <p class="small" style="margin:0">Add a note, a file, or both. The query then shows as “Sent to bank”.</p>
+  <div class="acts"><button class="btn primary">Mark sent to bank</button><button class="btn">Cancel</button></div>
+</form></dialog>
+
+<dialog id="reject"><form method="dialog">
+  <h2>Bank rejected the proof</h2>
+  <p class="muted" style="margin:0">Builder NOC copy</p>
+  <label>What did the bank say?<textarea rows="3">NOC must be on builder letterhead with seal.</textarea></label>
+  <p class="small" style="margin:0">The query goes back to “Open”. The old proof stays in its history; new proof is needed to send it again.</p>
+  <div class="acts"><button class="btn primary">Reopen query</button><button class="btn">Cancel</button></div>
+</form></dialog>
+</body>
+</html>

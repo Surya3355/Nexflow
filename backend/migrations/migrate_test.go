@@ -464,3 +464,77 @@ func TestMigration8Officers(t *testing.T) {
 		t.Fatalf("Up again: %v", err)
 	}
 }
+
+func TestMigration9Queries(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	ctx := context.Background()
+	user, bank, cust, a, _ := m6Fixture(t, pool)
+	var caseID, stageID, docID, qID int64
+	mustScan(t, pool.QueryRow(ctx, `SELECT id FROM stages WHERE code='received' AND bank_id IS NULL`), &stageID)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, project_id)
+		VALUES ($1, $2, 100000, $3, $4, $5) RETURNING id`, cust, bank, stageID, user, a), &caseID)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO documents (case_id, stage_id, label, file_name, content_type, size_bytes, storage_key, uploaded_by)
+		VALUES ($1, $2, 'Query 1 proof', 'p.pdf', 'application/pdf', 10, 'k1', $3) RETURNING id`, caseID, stageID, user), &docID)
+	ins := `INSERT INTO case_queries (case_id, number, body, raised_on, due_on, assignee_id, status, created_by, updated_by)
+		VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $6, $6) RETURNING id`
+	mustScan(t, pool.QueryRow(ctx, ins, caseID, 1, "Salary slips", "2026-11-24", "2026-11-25", user, "open"), &qID)
+	for name, args := range map[string][]any{
+		"blank body":   {caseID, 2, "  ", "2026-11-24", nil, user, "open"},
+		"bad status":   {caseID, 2, "x", "2026-11-24", nil, user, "closed"},
+		"due < raised": {caseID, 2, "x", "2026-11-24", "2026-11-23", user, "open"},
+	} {
+		var id int64
+		if err := pool.QueryRow(ctx, ins, args...).Scan(&id); err == nil || !strings.Contains(err.Error(), "23514") {
+			t.Errorf("%s err = %v, want 23514", name, err)
+		}
+	}
+	var dup int64
+	if err := pool.QueryRow(ctx, ins, caseID, 1, "x", "2026-11-24", nil, user, "open").Scan(&dup); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Errorf("duplicate number err = %v, want 23505", err)
+	}
+	var evID int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO case_query_events (query_id, kind, note, document_id, by_user) VALUES ($1, 'sent', 'sent it', $2, $3) RETURNING id`, qID, docID, user), &evID)
+	if _, err := pool.Exec(ctx, `INSERT INTO case_query_events (query_id, kind, by_user) VALUES ($1, 'closed', $2)`, qID, user); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Errorf("bad event kind err = %v, want 23514", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM documents WHERE id = $1`, docID); err != nil {
+		t.Fatalf("delete document: %v", err)
+	}
+	var gone bool
+	mustScan(t, pool.QueryRow(ctx, `SELECT document_id IS NULL FROM case_query_events WHERE id = $1`, evID), &gone)
+	if !gone {
+		t.Errorf("event document_id not cleared after document delete")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO alert_log (case_id, recipient_user_id, kind, due_on) VALUES ($1, $2, 'query_due', '2026-11-25')`, caseID, user); err != nil {
+		t.Fatalf("query_due alert: %v", err)
+	}
+	if err := Down(pool); err != nil {
+		t.Fatalf("Down: %v", err)
+	}
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up again: %v", err)
+	}
+}
+
+func TestMigration10ProofFileName(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	ctx := context.Background()
+	var n int
+	mustScan(t, pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_name = 'case_query_events' AND column_name = 'file_name'`), &n)
+	if n != 1 {
+		t.Fatalf("case_query_events.file_name columns = %d, want 1", n)
+	}
+	if err := Down(pool); err != nil {
+		t.Fatalf("Down: %v", err)
+	}
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up again: %v", err)
+	}
+}

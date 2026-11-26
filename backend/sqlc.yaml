@@ -84,3 +84,11 @@ sql:
         package: "officersdb"
         out: "modules/officers/officersdb"
         sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/bankqueries/queries"
+    gen:
+      go:
+        package: "bankqueriesdb"
+        out: "modules/bankqueries/bankqueriesdb"
+        sql_package: "pgx/v5"

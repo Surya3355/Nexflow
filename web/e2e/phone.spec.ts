@@ -72,6 +72,14 @@ const api: Record<string, unknown> = {
     { id: 1, bank_id: 1, bank_name: "HDFC", team: "dovr", team_name: "DOVR", name: "Venkataramanan Subramanian Iyer", phone: "9876543210" },
     { id: 2, bank_id: 1, bank_name: "HDFC", team: "fixing", team_name: "Fixing", name: "Lakshmi", phone: "9876543211" },
   ],
+  "/api/cases/1042/queries": {
+    queries: [{ id: 6, number: 1, body: "Builder NOC copy on letterhead with seal and signature of the authorised signatory",
+      raised_on: "2026-11-20", due_on: "2026-11-21", assignee: { id: 2, name: "Venkataramanan Subramanian Iyer" }, status: "sent",
+      proof: { note: "Emailed the NOC to the DOVR officer", document: { id: 9, label: "Query 1 proof", file_name: "builder-noc-letterhead-signed-final-version.pdf" }, at: "2026-11-25T06:00:00Z", by: "Asha" },
+      events: [] }],
+    open_count: 1,
+    events: [],
+  },
   "/api/cases/1042/officers": {
     officers: [{ team: "dovr", team_name: "DOVR", officer: { id: 1, name: "Venkataramanan Subramanian Iyer", phone: "9876543210", removed: false } },
       { team: "appraisal", team_name: "Appraisal", officer: null }],
@@ -180,3 +188,20 @@ test("Home tabs and Filter fit one line at 360 px", async ({ page }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+// Bank queries review: the blocked-move message points to the queries where they are on screen.
+for (const [width, shown, hidden] of [
+  [360, "Resolve the 1 bank query above first.", "Resolve the 1 open bank query first."],
+  [1280, "Resolve the 1 open bank query first.", "Resolve the 1 bank query above first."],
+] as const) {
+  test(`blocked move message at ${width} px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.route("**/api/**", (route) => {
+      const body = api[new URL(route.request().url()).pathname];
+      return body === undefined ? route.fulfill({ status: 404, json: { error: "not mocked" } }) : route.fulfill({ json: body });
+    });
+    await page.goto("/cases/1042");
+    await expect(page.getByText(shown)).toBeVisible();
+    await expect(page.getByText(hidden)).toBeHidden();
+  });
+}

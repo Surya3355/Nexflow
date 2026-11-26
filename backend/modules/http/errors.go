@@ -11,6 +11,7 @@ import (
 
 	"github.com/Surya3355/nexflow/backend/modules/access"
 	"github.com/Surya3355/nexflow/backend/modules/archive"
+	"github.com/Surya3355/nexflow/backend/modules/bankqueries"
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
@@ -40,7 +41,9 @@ func statusFor(err error) int {
 		errors.Is(err, cases.ErrProjectNotFound),
 		errors.Is(err, leads.ErrLeadNotFound),
 		errors.Is(err, leads.ErrProjectNotFound),
-		errors.Is(err, officers.ErrOfficerNotFound):
+		errors.Is(err, officers.ErrOfficerNotFound),
+		errors.Is(err, bankqueries.ErrCaseNotFound),
+		errors.Is(err, bankqueries.ErrQueryNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, access.ErrUsernameTaken),
 		errors.Is(err, cases.ErrDuplicateTracking),
@@ -68,7 +71,12 @@ func statusFor(err error) int {
 		errors.Is(err, cases.ErrAlreadyFullyPaid),
 		errors.Is(err, workflows.ErrBankHasOwnStages),
 		errors.Is(err, officers.ErrPhoneTaken),
-		errors.Is(err, officers.ErrEmailTaken):
+		errors.Is(err, officers.ErrEmailTaken),
+		errors.Is(err, cases.ErrOpenQueries),
+		errors.Is(err, bankqueries.ErrCaseDropped),
+		errors.Is(err, bankqueries.ErrQueryResolved),
+		errors.Is(err, bankqueries.ErrAlreadySent),
+		errors.Is(err, bankqueries.ErrNotSent):
 		return http.StatusConflict
 	case errors.Is(err, documents.ErrTooLarge):
 		return http.StatusRequestEntityTooLarge
@@ -128,7 +136,16 @@ func statusFor(err error) int {
 		errors.Is(err, officers.ErrContactRequired),
 		errors.Is(err, officers.ErrTeamNotForBank),
 		errors.Is(err, cases.ErrOfficerInvalid),
-		errors.Is(err, cases.ErrTeamNotOnStages):
+		errors.Is(err, cases.ErrTeamNotOnStages),
+		errors.Is(err, bankqueries.ErrBodyRequired),
+		errors.Is(err, bankqueries.ErrBodyTooLong),
+		errors.Is(err, bankqueries.ErrRaisedInFuture),
+		errors.Is(err, bankqueries.ErrDueBeforeRaised),
+		errors.Is(err, bankqueries.ErrAssigneeRequired),
+		errors.Is(err, bankqueries.ErrAssigneeInactive),
+		errors.Is(err, bankqueries.ErrProofRequired),
+		errors.Is(err, bankqueries.ErrNoteTooLong),
+		errors.Is(err, bankqueries.ErrReasonRequired):
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

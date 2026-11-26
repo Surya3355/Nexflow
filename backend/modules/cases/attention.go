@@ -20,7 +20,8 @@ type AttentionItem struct {
 }
 
 // Attention lists active cases that need attention, oldest stage first.
-// A nil assigneeID means every assignee. A missing document outranks a long wait.
+// A nil assigneeID means every assignee. Open bank queries outrank a missing
+// document, which outranks a long wait.
 func (s *Service) Attention(ctx context.Context, assigneeID *int64, now time.Time) ([]AttentionItem, error) {
 	rows, err := s.q.AttentionCases(ctx, casesdb.AttentionCasesParams{
 		AssigneeID:  int64Null(assigneeID),
@@ -33,7 +34,12 @@ func (s *Service) Attention(ctx context.Context, assigneeID *int64, now time.Tim
 	for _, r := range rows {
 		row := toCaseRow(casesdb.ListCaseRowsRow(r))
 		reason := "No documents at this stage"
-		if !row.NeedsDocument {
+		switch {
+		case row.OpenQueries == 1:
+			reason = "1 open bank query"
+		case row.OpenQueries > 1:
+			reason = fmt.Sprintf("%d open bank queries", row.OpenQueries)
+		case !row.NeedsDocument:
 			days := int(now.Sub(row.StageSince) / (24 * time.Hour))
 			reason = fmt.Sprintf("In %s for %d days", row.StageName, days)
 		}

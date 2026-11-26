@@ -251,6 +251,11 @@ func (s *Service) paymentTx(ctx context.Context, actor access.User, caseID int64
 	if state.FullyPaid && role == workflows.RoleDisbursement {
 		status = "completed"
 	}
+	if status == "completed" && locked.Status != "completed" {
+		if err := noOpenQueries(txCtx, q, caseID); err != nil {
+			return Case{}, err
+		}
+	}
 	if status != locked.Status {
 		if err := q.SetCaseStatus(txCtx, casesdb.SetCaseStatusParams{
 			ID: caseID, Status: status, UpdatedBy: pgtype.Int8{Int64: actor.ID, Valid: true},

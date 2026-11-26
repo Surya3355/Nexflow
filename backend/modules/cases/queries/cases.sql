@@ -139,7 +139,9 @@ SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.curre
        u.full_name AS assignee_name,
        COALESCE((SELECT max(e.reached_at) FROM case_stage_events e
                   WHERE e.case_id = k.id AND e.stage_id = k.current_stage_id), k.created_at)::timestamptz AS stage_since,
-       (s.requires_document AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.case_id = k.id))::boolean AS needs_document
+       (s.requires_document AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.case_id = k.id))::boolean AS needs_document,
+       (SELECT count(*) FROM case_queries cq
+         WHERE cq.case_id = k.id AND cq.removed_at IS NULL AND cq.status <> 'resolved')::int AS open_queries
 FROM cases k
 JOIN customers cu ON cu.id = k.customer_id
 JOIN banks b ON b.id = k.bank_id
@@ -156,7 +158,8 @@ WHERE (sqlc.narg('stage_id')::bigint IS NULL OR k.current_stage_id = sqlc.narg('
 ORDER BY k.created_at DESC, k.id DESC;
 
 -- name: AttentionCases :many
--- Active cases that need attention: the current stage requires a document and
+-- Cases that need attention: open bank queries (active or completed cases), or for
+-- active cases: the current stage requires a document and
 -- none is uploaded, or the case reached its current stage on or before stuck_before
 -- and that stage is not the disbursement stage (a part-paid case can wait months). Oldest first.
 SELECT * FROM (
@@ -174,18 +177,22 @@ SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.curre
        u.full_name AS assignee_name,
        COALESCE((SELECT max(e.reached_at) FROM case_stage_events e
                   WHERE e.case_id = k.id AND e.stage_id = k.current_stage_id), k.created_at)::timestamptz AS stage_since,
-       (s.requires_document AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.case_id = k.id))::boolean AS needs_document
+       (s.requires_document AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.case_id = k.id))::boolean AS needs_document,
+       (SELECT count(*) FROM case_queries cq
+         WHERE cq.case_id = k.id AND cq.removed_at IS NULL AND cq.status <> 'resolved')::int AS open_queries
 FROM cases k
 JOIN customers cu ON cu.id = k.customer_id
 JOIN banks b ON b.id = k.bank_id
 JOIN projects p ON p.id = k.project_id
 JOIN stages s ON s.id = k.current_stage_id
 JOIN users u ON u.id = k.assignee_id
-WHERE k.status = 'active'
+WHERE k.status IN ('active', 'completed')
   AND (sqlc.narg('assignee_id')::bigint IS NULL OR k.assignee_id = sqlc.narg('assignee_id')::bigint)
 ) r
-WHERE r.needs_document
-   OR (r.stage_since <= sqlc.arg('stuck_before')::timestamptz AND r.stage_role <> 'disbursement')
+-- A completed case needs attention only for a bank query raised after it completed.
+WHERE r.open_queries > 0
+   OR (r.status = 'active' AND r.needs_document)
+   OR (r.status = 'active' AND r.stage_since <= sqlc.arg('stuck_before')::timestamptz AND r.stage_role <> 'disbursement')
 ORDER BY r.stage_since, r.id;
 
 -- name: UpdateCaseProject :one
@@ -288,3 +295,8 @@ JOIN bank_officers o ON o.id = co.officer_id
 JOIN users u ON u.id = co.picked_by
 WHERE co.case_id = $1
 ORDER BY co.picked_at, co.id;
+
+-- name: CountOpenCaseQueries :one
+-- Bank queries of a case not yet resolved: they block forward stage moves.
+SELECT count(*)::int FROM case_queries
+WHERE case_id = $1 AND removed_at IS NULL AND status <> 'resolved';

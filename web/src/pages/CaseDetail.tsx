@@ -4,7 +4,7 @@ import { BuilderContactPicker } from "../components/BuilderContactPicker";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, upload } from "../api/client";
-import type { Case, CaseOfficers, CaseRow, Customer, DocumentInfo, LeadContact, Project, Stage, StageEvent } from "../api/types";
+import type { Case, CaseOfficers, CaseQueries, CaseRow, Customer, DocumentInfo, LeadContact, Project, QueryEvent, Stage, StageEvent } from "../api/types";
 import { AddCaseDialog } from "../components/AddCaseDialog";
 import { AssignDialog } from "../components/AssignDialog";
 import { Badge } from "../components/Badge";
@@ -18,9 +18,24 @@ import { Disbursements } from "./case/Disbursements";
 import type { Role } from "../api/types";
 import { ContactLog } from "./lead/ContactLog";
 import { BankOfficers } from "./case/BankOfficers";
+import { BankQueries } from "./case/BankQueries";
 import { officerLabel } from "../api/officers";
 
 type Moving = { target: Stage | null } | null;
+
+const noQueries: CaseQueries = { queries: [], open_count: 0, events: [] };
+
+/** How each bank query step reads in the case history. */
+const queryStep: Record<QueryEvent["kind"], string> = {
+  raised: "Bank query added", edited: "Query edited", sent: "Query sent to bank", accepted: "Bank accepted",
+  rejected: "Bank rejected", proof_removed: "Query proof removed", removed: "Query removed",
+};
+
+/** "1 open bank query", "2 open bank queries"; with where, "2 bank queries above". */
+function queryCount(n: number, where = ""): string {
+  const noun = n === 1 ? "bank query" : "bank queries";
+  return where ? `${n} ${noun}${where}` : `${n} open ${noun}`;
+}
 
 /** One case: progress through the bank's stages, documents, assignee and drop (spec §5.4). */
 export function CaseDetail({ role = "employee" }: { role?: Role }) {
@@ -45,6 +60,7 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
   const [pickingContact, setPickingContact] = useState(false);
   const [contacts, setContacts] = useState<LeadContact[]>([]);
   const [officers, setOfficers] = useState<CaseOfficers>({ officers: [], history: [] });
+  const [queries, setQueries] = useState<CaseQueries>(noQueries);
 
   async function load() {
     const [caseData, hist, docList] = await Promise.all([
@@ -62,12 +78,18 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
     setStages([...stageList].sort((a, b) => a.sort_order - b.sort_order));
     api.request<CaseOfficers>("GET", `/api/cases/${caseId}/officers`)
       .then(setOfficers).catch(() => setOfficers({ officers: [], history: [] }));
+    loadQueries();
     setCustomer(cust);
     setRow(cust?.cases?.find((x) => x.id === caseData.id) ?? null);
     if (caseData.lead_id) {
       api.request<{ contacts: LeadContact[] }>("GET", `/api/leads/${caseData.lead_id}`)
         .then((r) => setContacts(r.contacts)).catch(() => setContacts([]));
     }
+  }
+
+  function loadQueries() {
+    api.request<CaseQueries>("GET", `/api/cases/${caseId}/queries`)
+      .then(setQueries).catch(() => setQueries(noQueries));
   }
 
   useEffect(() => {
@@ -83,12 +105,14 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
   const currentIndex = stages.findIndex((s) => s.id === c.current_stage_id);
   const current = stages[currentIndex];
   const next = currentIndex >= 0 ? stages[currentIndex + 1] : undefined;
+  const blocked = queries.open_count > 0;
   const needsDocs = Boolean(current?.requires_document) && docs.length === 0;
   const lastEvent = (code: string) => [...history].reverse().find((e) => e.stage_code === code);
   // Stage moves and officer picks in one list, by time (spec 2026-11-26 §5.3).
   const timeline = [
     ...history.map((e) => ({ key: `s${e.id}`, at: e.reached_at, title: e.stage_name, by: e.changed_by, remark: e.remark })),
     ...officers.history.map((e, i) => ({ key: `o${i}`, at: e.at, title: `${officerLabel(e.team_name)}: ${e.officer_name}`, by: e.changed_by, remark: "" })),
+    ...queries.events.map((e, i) => ({ key: `q${i}`, at: e.at, title: `${queryStep[e.kind]}: ${e.body}`, by: e.by, remark: e.kind === "rejected" ? e.note : "" })),
   ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 
   async function moved(updated: Case & { warning?: string }) {
@@ -97,10 +121,10 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
     await load();
   }
 
-  async function openDocument(d: DocumentInfo) {
+  async function openDocument(docId: number) {
     setError(null);
     try {
-      const link = await api.request<{ url: string }>("GET", `/api/cases/${caseId}/documents/${d.id}/link`);
+      const link = await api.request<{ url: string }>("GET", `/api/cases/${caseId}/documents/${docId}/link`);
       window.open(link.url, "_blank", "noopener");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not open the file.");
@@ -140,6 +164,9 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
       <div className="grid gap-4 min-[900px]:grid-cols-[2fr_1fr]">
         <section className={card}>
           <h2 className="mb-2 font-semibold">Progress</h2>
+          {/* Stages on the left, bank queries in the space beside them; on a phone the queries come first. */}
+          <div className="grid gap-4 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] min-[900px]:items-start">
+          <div>
           <ol aria-label="Progress" className="space-y-1">
             {stages.map((s, i) => {
               const state = i < currentIndex ? "done" : i === currentIndex ? "now" : "todo";
@@ -159,9 +186,17 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
           </ol>
           {active && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {next && <button type="button" className={btnPrimary} onClick={() => setMoving({ target: next })}>Move to {next.name} →</button>}
+              {next && <button type="button" className={btnPrimary} disabled={blocked} onClick={() => setMoving({ target: next })}>Move to {next.name} →</button>}
               <button type="button" className={btnSmall} onClick={() => setMoving({ target: null })}>Other stage…</button>
             </div>
+          )}
+          {active && blocked && (
+            <p role="alert" className={`${alertBox} mt-2`}>
+              {/* Desktop shows the queries beside the stages; a phone shows them above. */}
+              <span className="hidden min-[900px]:inline">Resolve the {queryCount(queries.open_count)} first.</span>
+              <span className="min-[900px]:hidden">Resolve the {queryCount(queries.open_count, " above")} first.</span>
+              {" "}Moving back or dropping is still allowed.
+            </p>
           )}
           <details className="mt-4">
             <summary className="cursor-pointer text-sm text-slate-500">Full history ({timeline.length})</summary>
@@ -174,6 +209,12 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
               ))}
             </ol>
           </details>
+          </div>
+          <div className="order-first min-[900px]:order-none">
+            <BankQueries caseId={caseId} data={queries} readOnly={c.status === "dropped"} onOpenDocument={openDocument}
+              onChanged={() => { load().catch(() => setError("Could not reload this case.")); }} />
+          </div>
+          </div>
         </section>
 
         <aside className="space-y-4">
@@ -191,7 +232,7 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
               <ul className="mt-3 space-y-1 text-sm">
                 {docs.map((d) => (
                   <li key={d.id}>
-                    <button type="button" className="text-blue-700" onClick={() => openDocument(d)}>{d.label}</button>
+                    <button type="button" className="text-blue-700" onClick={() => openDocument(d.id)}>{d.label}</button>
                     <span className="text-slate-500"> · {d.file_name}</span>
                   </li>
                 ))}

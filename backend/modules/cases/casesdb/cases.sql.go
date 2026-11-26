@@ -28,7 +28,7 @@ func (q *Queries) ActiveContactInProject(ctx context.Context, arg ActiveContactI
 }
 
 const attentionCases = `-- name: AttentionCases :many
-SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id, lead_id, unit_number, builder_contact_id, customer_name, customer_mobile, bank_name, project_name, stage_name, stage_code, stage_role, stage_order, stage_count, assignee_name, stage_since, needs_document FROM (
+SELECT id, customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id, status, created_at, follow_up_date, project_id, lead_id, unit_number, builder_contact_id, customer_name, customer_mobile, bank_name, project_name, stage_name, stage_code, stage_role, stage_order, stage_count, assignee_name, stage_since, needs_document, open_queries FROM (
 SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.current_stage_id,
        k.assignee_id, k.status, k.created_at, k.follow_up_date, k.project_id, k.lead_id, k.unit_number, k.builder_contact_id,
        cu.name AS customer_name, cu.mobile AS customer_mobile, b.name AS bank_name, p.name AS project_name,
@@ -43,18 +43,21 @@ SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.curre
        u.full_name AS assignee_name,
        COALESCE((SELECT max(e.reached_at) FROM case_stage_events e
                   WHERE e.case_id = k.id AND e.stage_id = k.current_stage_id), k.created_at)::timestamptz AS stage_since,
-       (s.requires_document AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.case_id = k.id))::boolean AS needs_document
+       (s.requires_document AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.case_id = k.id))::boolean AS needs_document,
+       (SELECT count(*) FROM case_queries cq
+         WHERE cq.case_id = k.id AND cq.removed_at IS NULL AND cq.status <> 'resolved')::int AS open_queries
 FROM cases k
 JOIN customers cu ON cu.id = k.customer_id
 JOIN banks b ON b.id = k.bank_id
 JOIN projects p ON p.id = k.project_id
 JOIN stages s ON s.id = k.current_stage_id
 JOIN users u ON u.id = k.assignee_id
-WHERE k.status = 'active'
+WHERE k.status IN ('active', 'completed')
   AND ($1::bigint IS NULL OR k.assignee_id = $1::bigint)
 ) r
-WHERE r.needs_document
-   OR (r.stage_since <= $2::timestamptz AND r.stage_role <> 'disbursement')
+WHERE r.open_queries > 0
+   OR (r.status = 'active' AND r.needs_document)
+   OR (r.status = 'active' AND r.stage_since <= $2::timestamptz AND r.stage_role <> 'disbursement')
 ORDER BY r.stage_since, r.id
 `
 
@@ -90,11 +93,14 @@ type AttentionCasesRow struct {
 	AssigneeName     string
 	StageSince       pgtype.Timestamptz
 	NeedsDocument    bool
+	OpenQueries      int32
 }
 
-// Active cases that need attention: the current stage requires a document and
+// Cases that need attention: open bank queries (active or completed cases), or for
+// active cases: the current stage requires a document and
 // none is uploaded, or the case reached its current stage on or before stuck_before
 // and that stage is not the disbursement stage (a part-paid case can wait months). Oldest first.
+// A completed case needs attention only for a bank query raised after it completed.
 func (q *Queries) AttentionCases(ctx context.Context, arg AttentionCasesParams) ([]AttentionCasesRow, error) {
 	rows, err := q.db.Query(ctx, attentionCases, arg.AssigneeID, arg.StuckBefore)
 	if err != nil {
@@ -131,6 +137,7 @@ func (q *Queries) AttentionCases(ctx context.Context, arg AttentionCasesParams) 
 			&i.AssigneeName,
 			&i.StageSince,
 			&i.NeedsDocument,
+			&i.OpenQueries,
 		); err != nil {
 			return nil, err
 		}
@@ -363,6 +370,19 @@ UPDATE documents SET purge_after = NULL WHERE case_id = $1
 func (q *Queries) ClearCaseDocumentsPurgeAfter(ctx context.Context, caseID int64) error {
 	_, err := q.db.Exec(ctx, clearCaseDocumentsPurgeAfter, caseID)
 	return err
+}
+
+const countOpenCaseQueries = `-- name: CountOpenCaseQueries :one
+SELECT count(*)::int FROM case_queries
+WHERE case_id = $1 AND removed_at IS NULL AND status <> 'resolved'
+`
+
+// Bank queries of a case not yet resolved: they block forward stage moves.
+func (q *Queries) CountOpenCaseQueries(ctx context.Context, caseID int64) (int32, error) {
+	row := q.db.QueryRow(ctx, countOpenCaseQueries, caseID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const currentCaseOfficers = `-- name: CurrentCaseOfficers :many
@@ -881,7 +901,9 @@ SELECT k.id, k.customer_id, k.bank_id, k.loan_amount, k.tracking_number, k.curre
        u.full_name AS assignee_name,
        COALESCE((SELECT max(e.reached_at) FROM case_stage_events e
                   WHERE e.case_id = k.id AND e.stage_id = k.current_stage_id), k.created_at)::timestamptz AS stage_since,
-       (s.requires_document AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.case_id = k.id))::boolean AS needs_document
+       (s.requires_document AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.case_id = k.id))::boolean AS needs_document,
+       (SELECT count(*) FROM case_queries cq
+         WHERE cq.case_id = k.id AND cq.removed_at IS NULL AND cq.status <> 'resolved')::int AS open_queries
 FROM cases k
 JOIN customers cu ON cu.id = k.customer_id
 JOIN banks b ON b.id = k.bank_id
@@ -935,6 +957,7 @@ type ListCaseRowsRow struct {
 	AssigneeName     string
 	StageSince       pgtype.Timestamptz
 	NeedsDocument    bool
+	OpenQueries      int32
 }
 
 // ListCases plus the names and stage progress the case list shows.
@@ -983,6 +1006,7 @@ func (q *Queries) ListCaseRows(ctx context.Context, arg ListCaseRowsParams) ([]L
 			&i.AssigneeName,
 			&i.StageSince,
 			&i.NeedsDocument,
+			&i.OpenQueries,
 		); err != nil {
 			return nil, err
 		}

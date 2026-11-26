@@ -11,6 +11,55 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const caseLabelTaken = `-- name: CaseLabelTaken :one
+SELECT EXISTS (SELECT 1 FROM documents WHERE case_id = $1 AND label = $2)
+`
+
+type CaseLabelTakenParams struct {
+	CaseID int64
+	Label  string
+}
+
+func (q *Queries) CaseLabelTaken(ctx context.Context, arg CaseLabelTakenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, caseLabelTaken, arg.CaseID, arg.Label)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const caseStageForDocument = `-- name: CaseStageForDocument :one
+SELECT current_stage_id, status FROM cases WHERE id = $1
+`
+
+type CaseStageForDocumentRow struct {
+	CurrentStageID int64
+	Status         string
+}
+
+func (q *Queries) CaseStageForDocument(ctx context.Context, id int64) (CaseStageForDocumentRow, error) {
+	row := q.db.QueryRow(ctx, caseStageForDocument, id)
+	var i CaseStageForDocumentRow
+	err := row.Scan(&i.CurrentStageID, &i.Status)
+	return i, err
+}
+
+const deleteDocument = `-- name: DeleteDocument :one
+DELETE FROM documents WHERE id = $1 RETURNING case_id, label, storage_key
+`
+
+type DeleteDocumentRow struct {
+	CaseID     int64
+	Label      string
+	StorageKey string
+}
+
+func (q *Queries) DeleteDocument(ctx context.Context, id int64) (DeleteDocumentRow, error) {
+	row := q.db.QueryRow(ctx, deleteDocument, id)
+	var i DeleteDocumentRow
+	err := row.Scan(&i.CaseID, &i.Label, &i.StorageKey)
+	return i, err
+}
+
 const findDocumentByLabel = `-- name: FindDocumentByLabel :one
 SELECT id, storage_key FROM documents WHERE case_id = $1 AND label = $2 FOR UPDATE
 `

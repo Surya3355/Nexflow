@@ -128,6 +128,34 @@ type CaseOfficer struct {
 	PickedBy  int64
 }
 
+type CaseQuery struct {
+	ID         int64
+	CaseID     int64
+	Number     int32
+	Body       string
+	RaisedOn   pgtype.Date
+	DueOn      pgtype.Date
+	AssigneeID int64
+	Status     string
+	RemovedAt  pgtype.Timestamptz
+	RemovedBy  pgtype.Int8
+	CreatedAt  pgtype.Timestamptz
+	CreatedBy  int64
+	UpdatedAt  pgtype.Timestamptz
+	UpdatedBy  int64
+}
+
+type CaseQueryEvent struct {
+	ID         int64
+	QueryID    int64
+	Kind       string
+	Note       pgtype.Text
+	DocumentID pgtype.Int8
+	At         pgtype.Timestamptz
+	ByUser     int64
+	FileName   pgtype.Text
+}
+
 type CaseStageEvent struct {
 	ID        int64
 	CaseID    int64

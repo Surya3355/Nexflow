@@ -155,6 +155,44 @@ func (q *Queries) QueueLeadCallOverdue(ctx context.Context, dueDay pgtype.Date) 
 	return result.RowsAffected(), nil
 }
 
+const queueQueryDue = `-- name: QueueQueryDue :execrows
+INSERT INTO alert_log (case_id, recipient_user_id, kind, due_on)
+SELECT q.case_id, q.assignee_id, 'query_due', q.due_on
+FROM case_queries q
+JOIN cases c ON c.id = q.case_id
+WHERE q.due_on = $1::date AND q.status = 'open' AND q.removed_at IS NULL AND c.status IN ('active', 'completed')
+ON CONFLICT DO NOTHING
+`
+
+// Open bank queries of live (active or completed) cases due on the given IST day, to the query's assignee.
+// A query already sent to the bank gets no alert (waiting on the bank).
+func (q *Queries) QueueQueryDue(ctx context.Context, dueDay pgtype.Date) (int64, error) {
+	result, err := q.db.Exec(ctx, queueQueryDue, dueDay)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const queueQueryOverdue = `-- name: QueueQueryOverdue :execrows
+INSERT INTO alert_log (case_id, recipient_user_id, kind, due_on)
+SELECT q.case_id, q.assignee_id, 'query_overdue', q.due_on
+FROM case_queries q
+JOIN cases c ON c.id = q.case_id
+WHERE q.due_on < $1::date AND q.status = 'open' AND q.removed_at IS NULL AND c.status IN ('active', 'completed')
+ON CONFLICT DO NOTHING
+`
+
+// Open bank queries whose due date has passed (before the given IST day): queued once per
+// query due date, so a query reopened after its due date (bank rejected) still gets one.
+func (q *Queries) QueueQueryOverdue(ctx context.Context, today pgtype.Date) (int64, error) {
+	result, err := q.db.Exec(ctx, queueQueryOverdue, today)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const unsentAlerts = `-- name: UnsentAlerts :many
 SELECT a.id, a.case_id, a.kind, a.due_on, a.attempts,
        u.username, COALESCE(u.email, '')::text AS email, u.full_name,

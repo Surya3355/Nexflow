@@ -17,6 +17,7 @@ import (
 	"github.com/Surya3355/nexflow/backend/migrations"
 	"github.com/Surya3355/nexflow/backend/modules/access"
 	"github.com/Surya3355/nexflow/backend/modules/archive"
+	"github.com/Surya3355/nexflow/backend/modules/bankqueries"
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
@@ -53,18 +54,20 @@ func newEnv(t *testing.T) *env {
 	wf := workflows.NewService(pool, rec)
 	e := &env{t: t, pool: pool, clients: map[access.Role]*http.Client{}, ids: map[string]int64{}}
 
+	docs := documents.NewService(pool, documents.NewMemoryStore(), rec)
 	handler := NewRouter(Deps{
 		Auth:      access.NewHandler(accessSvc, sm),
 		Access:    accessSvc,
 		Workflows: wf,
 		Customers: customers.NewService(pool, rec),
 		Cases:     cases.NewService(pool, wf, rec),
-		Documents: documents.NewService(pool, documents.NewMemoryStore(), rec),
 		Linker:    documents.NewLinker([]byte("route-test-secret-0123456789abcd")),
 		Archive:   archive.NewService(pool, rec),
 		Reports:   reports.NewService(pool),
 		Leads:     leads.NewService(pool, rec),
 		Officers:  officers.NewService(pool, wf, rec),
+		Documents: docs,
+		Queries:   bankqueries.NewService(pool, docs, rec),
 	})
 	e.srv = httptest.NewServer(handler)
 	t.Cleanup(e.srv.Close)

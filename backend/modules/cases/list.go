@@ -70,6 +70,7 @@ type CaseRow struct {
 	AssigneeName   string
 	StageSince     time.Time // when the current stage was reached
 	NeedsDocument  bool      // current stage requires a document and the case has none
+	OpenQueries    int       // bank queries not yet resolved
 }
 
 // ListRows is List with names and stage progress, for the case list screen.
@@ -104,5 +105,6 @@ func toCaseRow(r casesdb.ListCaseRowsRow) CaseRow {
 		CustomerName: r.CustomerName, CustomerMobile: r.CustomerMobile, BankName: r.BankName, ProjectName: r.ProjectName,
 		StageName: r.StageName, StageCode: r.StageCode, StageOrder: int(r.StageOrder), StageCount: int(r.StageCount),
 		AssigneeName: r.AssigneeName, StageSince: r.StageSince.Time, NeedsDocument: r.NeedsDocument,
+		OpenQueries: int(r.OpenQueries),
 	}
 }

@@ -19,6 +19,8 @@ const (
 	KindAssigned        = "assigned"
 	KindFollowUpDue     = "follow_up_due"
 	KindFollowUpOverdue = "follow_up_overdue"
+	KindQueryDue        = "query_due"
+	KindQueryOverdue    = "query_overdue"
 )
 
 // Sender sends one email. The SMTP implementation waits for hosting (plan Task 34 note).
@@ -129,6 +131,10 @@ func compose(kind, customer, project string, caseRef, leadRef pgtype.Int8) (stri
 		return "A case has been assigned to you", fmt.Sprintf("Case %d for %s has been assigned to you in Nexflow.", caseID, customer)
 	case KindFollowUpDue:
 		return "Follow-up due today", fmt.Sprintf("Case %d for %s has a follow-up due today.", caseID, customer)
+	case KindQueryDue:
+		return "Bank query due today", fmt.Sprintf("Case %d for %s has a bank query due today.", caseID, customer)
+	case KindQueryOverdue:
+		return "Bank query overdue", fmt.Sprintf("Case %d for %s has a bank query that is overdue.", caseID, customer)
 	default:
 		return "Follow-up overdue", fmt.Sprintf("Case %d for %s has a follow-up that is overdue.", caseID, customer)
 	}

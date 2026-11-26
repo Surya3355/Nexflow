@@ -588,6 +588,7 @@ func caseRowJSON(c cases.CaseRow) map[string]any {
 	out["assignee_name"] = c.AssigneeName
 	out["stage_since"] = c.StageSince
 	out["needs_document"] = c.NeedsDocument
+	out["open_queries"] = c.OpenQueries
 	return out
 }
 

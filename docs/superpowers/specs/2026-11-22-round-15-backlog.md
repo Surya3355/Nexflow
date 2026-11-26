@@ -98,13 +98,13 @@ they appear nowhere on Home (only through search). Task 1 (leads) fixes this.
 - Some stages record which officer is handling the case, so staff can follow up
   directly.
 
-### Task 8: Strict stages with proof
+### Task 8: Strict stages with proof → built with Task 9 (owner, 2026-11-26: meant query proof; strict stages stay as they are)
 
 - Some stages are strict: staff must upload proof to move to the next stage or
   mark the item resolved.
 - Builds on the existing "document required at a stage" rule (round 11).
 
-### Task 9: Bank queries (HDFC first)
+### Task 9: Bank queries, all banks (design: `2026-11-26-bank-queries-design.md`). **Built 2026-11-26.**
 
 - The bank raises queries on a case. Staff record each query and assign it to a
   team member.
@@ -117,7 +117,7 @@ they appear nowhere on Home (only through search). Task 1 (leads) fixes this.
 
 ## Order
 
-Done: 1, 2 (2026-11-23), 4, 5, 3 (2026-11-24), 10 (2026-11-25), 6, 7 (2026-11-26).
+Done: 1, 2 (2026-11-23), 4, 5, 3 (2026-11-24), 10 (2026-11-25), 6, 7, 8, 9 (2026-11-26).
 **Owner, 2026-11-24:** the HDFC work needs the bank's own flow first, so **Task 10 (HDFC stages) comes next**, then
 6 → 7 → 8 → 9 on top of it. Owner will provide the HDFC stage list.
 

@@ -45,7 +45,10 @@ SELECT jsonb_build_object(
   'documents', COALESCE((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.id) FROM documents d WHERE d.case_id = $1), '[]'::jsonb),
   'alerts', COALESCE((SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id) FROM alert_log a WHERE a.case_id = $1), '[]'::jsonb),
   'payments', COALESCE((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.id) FROM case_disbursements d WHERE d.case_id = $1), '[]'::jsonb),
-  'officers', COALESCE((SELECT jsonb_agg(to_jsonb(o) ORDER BY o.id) FROM case_officers o WHERE o.case_id = $1), '[]'::jsonb)
+  'officers', COALESCE((SELECT jsonb_agg(to_jsonb(o) ORDER BY o.id) FROM case_officers o WHERE o.case_id = $1), '[]'::jsonb),
+  'queries', COALESCE((SELECT jsonb_agg(to_jsonb(cq) ORDER BY cq.id) FROM case_queries cq WHERE cq.case_id = $1), '[]'::jsonb),
+  'query_events', COALESCE((SELECT jsonb_agg(to_jsonb(qe) ORDER BY qe.id) FROM case_query_events qe
+                             WHERE qe.query_id IN (SELECT x.id FROM case_queries x WHERE x.case_id = $1)), '[]'::jsonb)
 )::text AS doc
 `
 
@@ -157,6 +160,24 @@ DELETE FROM case_disbursements WHERE case_id = $1
 
 func (q *Queries) DeleteCasePayments(ctx context.Context, caseID int64) error {
 	_, err := q.db.Exec(ctx, deleteCasePayments, caseID)
+	return err
+}
+
+const deleteCaseQueries = `-- name: DeleteCaseQueries :exec
+DELETE FROM case_queries WHERE case_id = $1
+`
+
+func (q *Queries) DeleteCaseQueries(ctx context.Context, caseID int64) error {
+	_, err := q.db.Exec(ctx, deleteCaseQueries, caseID)
+	return err
+}
+
+const deleteCaseQueryEvents = `-- name: DeleteCaseQueryEvents :exec
+DELETE FROM case_query_events e USING case_queries q WHERE e.query_id = q.id AND q.case_id = $1
+`
+
+func (q *Queries) DeleteCaseQueryEvents(ctx context.Context, caseID int64) error {
+	_, err := q.db.Exec(ctx, deleteCaseQueryEvents, caseID)
 	return err
 }
 

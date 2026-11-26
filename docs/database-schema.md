@@ -230,6 +230,34 @@ Among current officers, one bank and team cannot list the same mobile (`bank_off
 
 Append-only: every pick adds a row. The latest row per case and team is the current officer; all rows are the history shown on the case page. Archived and restored with the case.
 
+### case_queries (round 15 tasks 8 and 9, migration 000009)
+| Column | Type | Rules |
+|---|---|---|
+| case_id | bigint | not null, FK `cases.id` |
+| number | integer | not null, > 0; unique per case (`Query <n>`) |
+| body | text | not null, not blank, ≤ 500 characters: what the bank asked |
+| raised_on | date | not null, not in the future (checked by the service) |
+| due_on | date | nullable, not before `raised_on` |
+| assignee_id | bigint | not null, FK `users.id` |
+| status | text | `open`, `sent` (proof sent, waiting for the bank), `resolved` (bank accepted) |
+| removed_at / removed_by | timestamptz / bigint | set when a query added by mistake is removed |
+| created_at/by, updated_at/by | | |
+
+A case cannot move to a later stage while it has a query that is not resolved and not removed. Archived and restored with the case.
+
+### case_query_events (migration 000009)
+| Column | Type | Rules |
+|---|---|---|
+| query_id | bigint | not null, FK `case_queries.id` |
+| kind | text | `raised`, `edited`, `sent`, `accepted`, `rejected`, `proof_removed`, `removed` |
+| note | text | nullable, ≤ 500: the proof note, or the bank's reason on `rejected` |
+| document_id | bigint | nullable, FK `documents.id` **ON DELETE SET NULL**: the proof file (a case document labelled `Query <n> proof`) |
+| file_name | text | nullable, ≤ 255 (migration 000010): the proof file's name, kept so the page can say "File deleted" after the document is purged or removed |
+| at | timestamptz | not null |
+| by_user | bigint | not null, FK `users.id` |
+
+Append-only history of each query. Archived and restored with the case (after documents).
+
 ### case_assignment_events
 | Column | Type | Rules |
 |---|---|---|
@@ -300,7 +328,7 @@ Prevents the same email from being sent twice.
 | case_id | bigint | nullable, FK `cases.id` |
 | lead_id | bigint | nullable, FK `leads.id` (round 15). Exactly one of `case_id`, `lead_id` is set |
 | recipient_user_id | bigint | not null, FK `users.id` |
-| kind | text | `assigned`, `follow_up_due`, `follow_up_overdue` |
+| kind | text | `assigned`, `follow_up_due`, `follow_up_overdue`, `query_due`, `query_overdue` (bank queries, to the query's assignee) |
 | due_on | date | nullable. The follow-up date the alert is for |
 | sent_at | timestamptz | not null |
 

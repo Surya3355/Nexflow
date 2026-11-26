@@ -491,3 +491,43 @@ describe("CaseDetail officer history wording", () => {
     expect(screen.queryByText(/Officer officer/)).not.toBeInTheDocument();
   });
 });
+
+describe("CaseDetail bank queries", () => {
+  const sentQuery = {
+    id: 6, number: 1, body: "Builder NOC copy", raised_on: "2026-11-22", due_on: null,
+    assignee: { id: 2, name: "Asha" }, status: "sent",
+    proof: { note: "Emailed", document: null, at: "2026-11-25T06:00:00Z", by: "Asha" }, events: [],
+  };
+  const events = [
+    { query_id: 6, number: 1, body: "Builder NOC copy", kind: "raised", note: "", at: "2026-11-13T10:00:00Z", by: "Asha", document_id: null },
+    { query_id: 6, number: 1, body: "Builder NOC copy", kind: "sent", note: "Emailed", at: "2026-11-15T10:00:00Z", by: "Asha", document_id: null },
+  ];
+
+  it("shows the queries box inside Progress and blocks the forward move", async () => {
+    renderCase({ "GET /api/cases/11/queries": { body: { queries: [sentQuery], open_count: 1, events } } });
+    const box = await screen.findByRole("region", { name: "Bank queries" });
+    const progress = screen.getByRole("heading", { name: "Progress" }).closest("section")!;
+    expect(progress).toContainElement(box);
+    expect(screen.getByRole("button", { name: /^Move to / })).toBeDisabled();
+    // Desktop (queries beside the stages) and phone (queries above them) wording; CSS shows one.
+    expect(screen.getByText("Resolve the 1 open bank query first.")).toBeInTheDocument();
+    expect(screen.getByText("Resolve the 1 bank query above first.")).toBeInTheDocument();
+    expect(screen.getByText(/Moving back or dropping is still allowed/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Other stage…" })).toBeEnabled();
+  });
+
+  it("moves normally with no open queries", async () => {
+    renderCase({ "GET /api/cases/11/queries": { body: { queries: [], open_count: 0, events: [] } } });
+    await screen.findByRole("region", { name: "Bank queries" });
+    expect(await ready()).toBeEnabled();
+    expect(screen.queryByText(/Moving back or dropping is still allowed/)).not.toBeInTheDocument();
+  });
+
+  it("puts query steps in the full history", async () => {
+    renderCase({ "GET /api/cases/11/queries": { body: { queries: [sentQuery], open_count: 1, events } } });
+    await screen.findByRole("region", { name: "Bank queries" });
+    const list = screen.getByRole("list", { name: "Stage history" });
+    expect(within(list).getByText("Bank query added: Builder NOC copy")).toBeInTheDocument();
+    expect(within(list).getByText("Query sent to bank: Builder NOC copy")).toBeInTheDocument();
+  });
+});

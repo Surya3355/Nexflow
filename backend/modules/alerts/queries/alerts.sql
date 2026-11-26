@@ -61,3 +61,23 @@ SELECT l.id, l.assignee_id, 'follow_up_overdue', l.next_call_date
 FROM leads l
 WHERE l.next_call_date <= sqlc.arg(due_day)::date AND l.status = 'open'
 ON CONFLICT DO NOTHING;
+
+-- name: QueueQueryDue :execrows
+-- Open bank queries of live (active or completed) cases due on the given IST day, to the query's assignee.
+-- A query already sent to the bank gets no alert (waiting on the bank).
+INSERT INTO alert_log (case_id, recipient_user_id, kind, due_on)
+SELECT q.case_id, q.assignee_id, 'query_due', q.due_on
+FROM case_queries q
+JOIN cases c ON c.id = q.case_id
+WHERE q.due_on = sqlc.arg(due_day)::date AND q.status = 'open' AND q.removed_at IS NULL AND c.status IN ('active', 'completed')
+ON CONFLICT DO NOTHING;
+
+-- name: QueueQueryOverdue :execrows
+-- Open bank queries whose due date has passed (before the given IST day): queued once per
+-- query due date, so a query reopened after its due date (bank rejected) still gets one.
+INSERT INTO alert_log (case_id, recipient_user_id, kind, due_on)
+SELECT q.case_id, q.assignee_id, 'query_overdue', q.due_on
+FROM case_queries q
+JOIN cases c ON c.id = q.case_id
+WHERE q.due_on < sqlc.arg(today)::date AND q.status = 'open' AND q.removed_at IS NULL AND c.status IN ('active', 'completed')
+ON CONFLICT DO NOTHING;

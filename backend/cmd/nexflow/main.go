@@ -14,6 +14,7 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/access"
 	"github.com/Surya3355/nexflow/backend/modules/alerts"
 	"github.com/Surya3355/nexflow/backend/modules/archive"
+	"github.com/Surya3355/nexflow/backend/modules/bankqueries"
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
@@ -64,18 +65,20 @@ func main() {
 	archiveSvc := archive.NewService(pool, rec)
 	archiveSvc.SetFileRemover(store)
 
+	docs := documents.NewService(pool, store, rec)
 	handler := apihttp.NewRouter(apihttp.Deps{
 		Auth:      access.NewHandler(accessSvc, access.NewSessionManager(pool, cfg.SecureCookies)),
 		Access:    accessSvc,
 		Workflows: wf,
 		Customers: customers.NewService(pool, rec),
 		Cases:     caseSvc,
-		Documents: documents.NewService(pool, store, rec),
+		Documents: docs,
 		Linker:    documents.NewLinker(cfg.LinkSecret),
 		Archive:   archiveSvc,
 		Reports:   reports.NewService(pool),
 		Leads:     leadSvc,
 		Officers:  officers.NewService(pool, wf, rec),
+		Queries:   bankqueries.NewService(pool, docs, rec),
 	})
 
 	jobs := Jobs{Archive: archiveSvc, Queue: queue, Sender: unconfiguredSender{}}
