@@ -30,7 +30,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// shutdownWait is how long a restart waits for requests and jobs in progress.
+const shutdownWait = 30 * time.Second
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		if err := runHealthcheck(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "create-admin" {
 		if err := runCreateAdmin(os.Args[2:]); err != nil {
 			log.Fatal(err)
@@ -83,10 +92,15 @@ func main() {
 		Officers:       officers.NewService(pool, wf, rec),
 		Queries:        bankqueries.NewService(pool, docs, rec),
 		AllowedOrigins: cfg.AllowedOrigins,
+		Health:         pool.Ping,
 	})
 
 	jobs := Jobs{Archive: archiveSvc, Queue: queue, Sender: unconfiguredSender{}}
-	go schedule(ctx, jobs, time.Now)
+	schedDone := make(chan struct{})
+	go func() {
+		defer close(schedDone)
+		schedule(ctx, newScheduler(jobs.Run, pgJobRuns{pool: pool}), time.Now)
+	}()
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -95,15 +109,28 @@ func main() {
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      60 * time.Second,
 	}
-	go func() {
-		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdown)
-	}()
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.ListenAndServe() }()
 	log.Printf("nexflow listening on %s", cfg.HTTPAddr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+	select {
+	case err := <-serveErr:
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	case <-ctx.Done():
+	}
+	// Stop taking requests and let those in progress, and a running job,
+	// finish before the database pool closes (deferred above).
+	log.Printf("nexflow stopping")
+	shutdown, cancel := context.WithTimeout(context.Background(), shutdownWait)
+	defer cancel()
+	if err := srv.Shutdown(shutdown); err != nil {
+		log.Printf("shutdown: %v", err)
+	}
+	select {
+	case <-schedDone:
+	case <-shutdown.Done():
+		log.Printf("shutdown: a job was still running")
 	}
 }
 

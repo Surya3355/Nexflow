@@ -1,6 +1,7 @@
 package apihttp
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -34,6 +35,25 @@ type Deps struct {
 	// AllowedOrigins are other sites allowed to send changing requests, such
 	// as the Vite dev server. The app's own address is always allowed.
 	AllowedOrigins []string
+	// Health checks the database for /healthz; nil means always healthy.
+	Health func(context.Context) error
+}
+
+// healthHandler answers 200 "ok" when check passes within 2 seconds, else 503.
+func healthHandler(check func(context.Context) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if check != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+			if err := check(ctx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("database unavailable"))
+				return
+			}
+		}
+		_, _ = w.Write([]byte("ok"))
+	}
 }
 
 // NewRouter returns the full API under /api. Login and the download link are
@@ -45,10 +65,7 @@ func NewRouter(d Deps) http.Handler {
 	d.Auth.Mount(r)
 
 	r.Get("/api/documents/{token}", documents.DownloadHandler(d.Documents, d.Linker))
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("ok"))
-	})
+	r.Get("/healthz", healthHandler(d.Health))
 
 	r.Group(func(r chi.Router) {
 		r.Use(d.Auth.RequireUser)

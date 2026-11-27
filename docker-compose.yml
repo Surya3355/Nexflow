@@ -35,11 +35,19 @@ services:
       - uploads:/data/uploads
     ports:
       - "8080:8080"
+    healthcheck:
+      # The image has no shell; the binary checks its own /healthz (database included).
+      test: ["CMD", "/nexflow", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    stop_grace_period: 35s   # the server waits up to 30 s for work in progress
 
   web:
     build: ./web
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "8081:80"
 
