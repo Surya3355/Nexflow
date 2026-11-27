@@ -104,5 +104,9 @@ If Playwright reports missing libraries on Linux, run `npx playwright install-de
 - Uploaded files are kept on the local disk (`NEXFLOW_UPLOAD_DIR`).
 - No backup copy off the machine; `infra/backup/backup.sh` needs `pg_dump` installed.
 - Cookies are not marked secure (plain HTTP). Keep `NEXFLOW_INSECURE_COOKIES=true` for local use only.
+- 5 wrong passwords lock a username for 15 minutes (an admin password reset unlocks it). One address may try 20 logins a minute.
+- Changes (POST, PUT, PATCH, DELETE) must come from the app's own page: the API checks the browser's Origin header. Scripts and curl must send `-H "Origin: http://localhost:8081"`. Another address (for example a different dev port) goes in `NEXFLOW_ALLOWED_ORIGINS`.
+- The app connects as the database role `nexflow_app`, which can add to the audit history but not change it. Migrations run as the owner at start.
+- `docker compose ps` shows the backend as healthy once `/healthz` (which checks the database) answers.
 - There is no login rate limiting.
 - The Docker images were written but not built on the machine where this was prepared (Docker was not installed there). If `docker compose up --build` fails, send the error and it can be fixed.
