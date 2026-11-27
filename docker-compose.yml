@@ -34,7 +34,9 @@ services:
     volumes:
       - uploads:/data/uploads
     ports:
-      - "8080:8080"
+      # This computer only: other devices go through nginx on 8081, and the
+      # login limit trusts the X-Real-IP header only nginx should set.
+      - "127.0.0.1:8080:8080"
     healthcheck:
       # The image has no shell; the binary checks its own /healthz (database included).
       test: ["CMD", "/nexflow", "healthcheck"]

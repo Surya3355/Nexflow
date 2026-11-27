@@ -208,6 +208,7 @@ After the code review and QA test of 2026-11-27 (both: not production ready), th
 - **Payment dates:** today or earlier (India time); future dates are refused.
 - **Phone top bar:** a ☰ menu button lists every page and Sign out.
 - **Later, with the owner's domain and hosting:** sending emails, "Forgot password" by email, HTTPS, hosting setup, daily backup schedule with copies off the server.
+- **Audit protection, how far it goes (review 2026-11-27):** the app connects as the database owner and switches to the limited role `nexflow_app` on every connection. That stops app mistakes from changing history, but code that could run its own SQL could switch back. **Hosting round:** give the app its own login role (member of `nexflow_app`, not the owner) and keep the owner login for migrations only. Also for hosting: keep the API port unpublished (only nginx reaches it), and turn on HSTS once HTTPS works.
 
 ## 11. Open questions
 

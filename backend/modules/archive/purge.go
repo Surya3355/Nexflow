@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5"
+	"strings"
 	"time"
 )
 
@@ -112,15 +114,41 @@ func (s *Service) PurgeExpired(ctx context.Context, now time.Time) (PurgeResult,
 	if err := tx.Commit(ctx); err != nil {
 		return PurgeResult{}, fmt.Errorf("purge: commit: %w", err)
 	}
-	// The rows are gone; a file that can't be deleted now is only left over
-	// on disk. Report it, but keep going with the rest.
-	var fileErr error
-	for _, key := range fileKeys {
-		if err := s.files.Delete(key); err != nil && fileErr == nil {
-			fileErr = fmt.Errorf("purge: delete file %s: %w", key, err)
+	// The rows are gone. A file that can't be deleted now is recorded in
+	// pending_file_deletes and tried again on the next run (also files left
+	// over from earlier runs).
+	return res, s.deleteFiles(ctx, fileKeys)
+}
+
+// deleteFiles deletes the given files and any left over from earlier runs.
+// Failures are kept for the next run and named in the returned error.
+func (s *Service) deleteFiles(ctx context.Context, keys []string) error {
+	rows, err := s.pool.Query(ctx, `SELECT storage_key FROM pending_file_deletes`)
+	if err != nil {
+		return fmt.Errorf("purge: pending deletes: %w", err)
+	}
+	pending, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("purge: pending deletes: %w", err)
+	}
+	var failed []string
+	for _, key := range append(pending, keys...) {
+		if err := s.files.Delete(key); err != nil {
+			failed = append(failed, key)
+			if _, dbErr := s.pool.Exec(ctx, `INSERT INTO pending_file_deletes (storage_key, last_error) VALUES ($1, $2)
+				ON CONFLICT (storage_key) DO UPDATE SET failed_at = now(), last_error = EXCLUDED.last_error`, key, err.Error()); dbErr != nil {
+				return fmt.Errorf("purge: record pending delete %s: %w", key, dbErr)
+			}
+			continue
+		}
+		if _, err := s.pool.Exec(ctx, `DELETE FROM pending_file_deletes WHERE storage_key = $1`, key); err != nil {
+			return fmt.Errorf("purge: clear pending delete %s: %w", key, err)
 		}
 	}
-	return res, fileErr
+	if len(failed) > 0 {
+		return fmt.Errorf("purge: could not delete %d file(s), will retry: %s", len(failed), strings.Join(failed, ", "))
+	}
+	return nil
 }
 
 // snapshotDocumentKeys returns the storage keys of the documents in an archive snapshot.

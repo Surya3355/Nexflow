@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -76,5 +77,46 @@ func TestPurgeDeletesFilesAfterCommit(t *testing.T) {
 	}
 	if rem.visible != 0 {
 		t.Fatalf("file deleted while its row was still saved (rows visible = %d); want the delete after commit", rem.visible)
+	}
+}
+
+// flakyRemover fails the first delete of each key, then succeeds.
+type flakyRemover struct {
+	failed  map[string]bool
+	deleted []string
+}
+
+func (r *flakyRemover) Delete(key string) error {
+	if !r.failed[key] {
+		r.failed[key] = true
+		return errors.New("disk busy")
+	}
+	r.deleted = append(r.deleted, key)
+	return nil
+}
+
+func TestPurgeRetriesFailedFileDeletes(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	var stageID int64
+	mustScanOne(t, f, `SELECT id FROM stages WHERE code='received' AND bank_id IS NULL`, &stageID)
+	if _, err := f.pool.Exec(ctx, `INSERT INTO documents (case_id, stage_id, label, file_name, content_type, size_bytes, storage_key, purge_after, uploaded_by)
+		VALUES ($1, $2, 'Old', 'old.pdf', 'application/pdf', 10, 'k/kyc', current_date - 1, $3)`, f.caseID, stageID, f.manager.ID); err != nil {
+		t.Fatal(err)
+	}
+	rem := &flakyRemover{failed: map[string]bool{}}
+	f.svc.SetFileRemover(rem)
+	if _, err := f.svc.PurgeExpired(ctx, time.Now()); err == nil || !strings.Contains(err.Error(), "k/kyc") {
+		t.Fatalf("first purge: err = %v, want it to name the file it could not delete", err)
+	}
+	// The next run deletes the left-over file.
+	if _, err := f.svc.PurgeExpired(ctx, time.Now()); err != nil {
+		t.Fatalf("second purge: %v", err)
+	}
+	if len(rem.deleted) != 1 || rem.deleted[0] != "k/kyc" {
+		t.Fatalf("deleted = %v, want the left-over k/kyc", rem.deleted)
+	}
+	if n := count(t, f.pool, `SELECT count(*) FROM pending_file_deletes`); n != 0 {
+		t.Fatalf("pending deletes left = %d, want 0", n)
 	}
 }
