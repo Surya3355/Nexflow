@@ -1,0 +1,109 @@
+# Automatic checks on every pull request into main and every push to main
+# (spec docs/superpowers/specs/2026-11-27-ci-checks-design.md).
+name: Checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# The checks only read the code.
+permissions:
+  contents: read
+
+# A newer push to the same pull request cancels the run still going.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nexflow
+          POSTGRES_PASSWORD: nexflow-local
+          POSTGRES_DB: nexflow
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nexflow -d nexflow"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      NEXFLOW_TEST_DB_URL: postgres://nexflow:nexflow-local@localhost:5432/postgres?sslmode=disable
+      NEXFLOW_LINK_SECRET: ci-test-secret-0123456789abcdef0123456789
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+
+  web:
+    name: Web tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  phone:
+    name: Phone checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        env:
+          CI: "true"
+
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Go libraries and standard library (govulncheck)
+        working-directory: backend
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Web libraries (npm audit)
+        working-directory: web
+        run: npm audit --audit-level=high
