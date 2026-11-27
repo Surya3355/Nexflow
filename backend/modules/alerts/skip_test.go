@@ -104,4 +104,3 @@ func TestFailingDoNotBlockNewer(t *testing.T) {
 		t.Fatal("the new alert waited behind 100 retried ones")
 	}
 }
-
