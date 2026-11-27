@@ -64,7 +64,11 @@ func (q *Queries) EnqueueLeadAlert(ctx context.Context, arg EnqueueLeadAlertPara
 }
 
 const markAlertFailed = `-- name: MarkAlertFailed :exec
-UPDATE alert_log SET attempts = attempts + 1, last_error = $2 WHERE id = $1
+UPDATE alert_log
+SET attempts = attempts + 1, last_error = $2,
+    skipped_at  = CASE WHEN attempts + 1 >= 5 THEN now() END,
+    skip_reason = CASE WHEN attempts + 1 >= 5 THEN 'failed 5 times' END
+WHERE id = $1
 `
 
 type MarkAlertFailedParams struct {
@@ -72,6 +76,7 @@ type MarkAlertFailedParams struct {
 	LastError pgtype.Text
 }
 
+// One more failed try; the 5th failure stops further tries.
 func (q *Queries) MarkAlertFailed(ctx context.Context, arg MarkAlertFailedParams) error {
 	_, err := q.db.Exec(ctx, markAlertFailed, arg.ID, arg.LastError)
 	return err
@@ -193,6 +198,35 @@ func (q *Queries) QueueQueryOverdue(ctx context.Context, today pgtype.Date) (int
 	return result.RowsAffected(), nil
 }
 
+const skipAlert = `-- name: SkipAlert :exec
+UPDATE alert_log SET skipped_at = now(), skip_reason = $2 WHERE id = $1
+`
+
+type SkipAlertParams struct {
+	ID         int64
+	SkipReason pgtype.Text
+}
+
+func (q *Queries) SkipAlert(ctx context.Context, arg SkipAlertParams) error {
+	_, err := q.db.Exec(ctx, skipAlert, arg.ID, arg.SkipReason)
+	return err
+}
+
+const skipStaleAlerts = `-- name: SkipStaleAlerts :execrows
+UPDATE alert_log SET skipped_at = now(), skip_reason = 'older than 3 days'
+WHERE sent_at IS NULL AND skipped_at IS NULL AND queued_at < now() - interval '3 days'
+`
+
+// Alerts queued more than 3 days ago are no longer useful: skip them
+// (also stops a backlog going out on the day email is switched on).
+func (q *Queries) SkipStaleAlerts(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, skipStaleAlerts)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const unsentAlerts = `-- name: UnsentAlerts :many
 SELECT a.id, a.case_id, a.kind, a.due_on, a.attempts,
        u.username, COALESCE(u.email, '')::text AS email, u.full_name,
@@ -203,8 +237,8 @@ LEFT JOIN cases c ON c.id = a.case_id
 LEFT JOIN leads l ON l.id = a.lead_id
 LEFT JOIN projects p ON p.id = l.project_id
 JOIN customers cu ON cu.id = COALESCE(c.customer_id, l.customer_id)
-WHERE a.sent_at IS NULL AND u.is_active
-ORDER BY a.queued_at, a.id
+WHERE a.sent_at IS NULL AND a.skipped_at IS NULL AND u.is_active
+ORDER BY a.attempts, a.queued_at, a.id
 LIMIT $1
 `
 

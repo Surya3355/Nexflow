@@ -14,15 +14,29 @@ LEFT JOIN cases c ON c.id = a.case_id
 LEFT JOIN leads l ON l.id = a.lead_id
 LEFT JOIN projects p ON p.id = l.project_id
 JOIN customers cu ON cu.id = COALESCE(c.customer_id, l.customer_id)
-WHERE a.sent_at IS NULL AND u.is_active
-ORDER BY a.queued_at, a.id
+WHERE a.sent_at IS NULL AND a.skipped_at IS NULL AND u.is_active
+ORDER BY a.attempts, a.queued_at, a.id
 LIMIT $1;
 
 -- name: MarkAlertSent :exec
 UPDATE alert_log SET sent_at = now(), attempts = attempts + 1, last_error = NULL WHERE id = $1;
 
 -- name: MarkAlertFailed :exec
-UPDATE alert_log SET attempts = attempts + 1, last_error = $2 WHERE id = $1;
+-- One more failed try; the 5th failure stops further tries.
+UPDATE alert_log
+SET attempts = attempts + 1, last_error = $2,
+    skipped_at  = CASE WHEN attempts + 1 >= 5 THEN now() END,
+    skip_reason = CASE WHEN attempts + 1 >= 5 THEN 'failed 5 times' END
+WHERE id = $1;
+
+-- name: SkipAlert :exec
+UPDATE alert_log SET skipped_at = now(), skip_reason = $2 WHERE id = $1;
+
+-- name: SkipStaleAlerts :execrows
+-- Alerts queued more than 3 days ago are no longer useful: skip them
+-- (also stops a backlog going out on the day email is switched on).
+UPDATE alert_log SET skipped_at = now(), skip_reason = 'older than 3 days'
+WHERE sent_at IS NULL AND skipped_at IS NULL AND queued_at < now() - interval '3 days';
 
 -- name: QueueFollowUpDue :execrows
 -- Active cases whose follow-up falls on the given IST day (spec §10).

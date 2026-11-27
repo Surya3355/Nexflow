@@ -84,11 +84,14 @@ func (q *Queue) QueueLeadAssigned(ctx context.Context, leadID, recipientID int64
 	return nil
 }
 
-// Dispatch sends up to limit queued alerts. A failed send is recorded and the
-// alert stays queued for the next run. A user with no email address is also
-// kept queued, with the reason.
+// Dispatch sends up to limit queued alerts, those tried least first, so
+// failing alerts never hold back newer ones. Alerts older than 3 days, for a
+// person with no email address, or failed 5 times are skipped, not sent.
 func (q *Queue) Dispatch(ctx context.Context, sender Sender, limit int32) (DispatchResult, error) {
 	db := alertsdb.New(q.pool)
+	if _, err := db.SkipStaleAlerts(ctx); err != nil {
+		return DispatchResult{}, fmt.Errorf("alerts: skip stale: %w", err)
+	}
 	rows, err := db.UnsentAlerts(ctx, limit)
 	if err != nil {
 		return DispatchResult{}, fmt.Errorf("alerts: unsent: %w", err)
@@ -97,13 +100,17 @@ func (q *Queue) Dispatch(ctx context.Context, sender Sender, limit int32) (Dispa
 	for _, r := range rows {
 		if r.Email == "" {
 			res.Failed++
-			_ = db.MarkAlertFailed(ctx, alertsdb.MarkAlertFailedParams{ID: r.ID, LastError: pgtype.Text{String: "no email address", Valid: true}})
+			if err := db.SkipAlert(ctx, alertsdb.SkipAlertParams{ID: r.ID, SkipReason: pgtype.Text{String: "no email address", Valid: true}}); err != nil {
+				return res, fmt.Errorf("alerts: skip: %w", err)
+			}
 			continue
 		}
 		subject, body := compose(r.Kind, r.CustomerName, r.ProjectName, r.CaseRef, r.LeadRef)
 		if err := sender.Send(ctx, r.Email, subject, body); err != nil {
 			res.Failed++
-			_ = db.MarkAlertFailed(ctx, alertsdb.MarkAlertFailedParams{ID: r.ID, LastError: pgtype.Text{String: err.Error(), Valid: true}})
+			if err := db.MarkAlertFailed(ctx, alertsdb.MarkAlertFailedParams{ID: r.ID, LastError: pgtype.Text{String: err.Error(), Valid: true}}); err != nil {
+				return res, fmt.Errorf("alerts: mark failed: %w", err)
+			}
 			continue
 		}
 		if err := db.MarkAlertSent(ctx, r.ID); err != nil {

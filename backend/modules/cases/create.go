@@ -321,6 +321,12 @@ func (s *Service) insertTx(ctx context.Context, q *casesdb.Queries, actor access
 	}); err != nil {
 		return 0, fmt.Errorf("cases: audit: %w", err)
 	}
+	// A case created for someone else tells them, as reassigning does.
+	if in.AssigneeID != actor.ID {
+		if err := s.notifier.QueueAssigned(ctx, id, in.AssigneeID); err != nil {
+			return 0, fmt.Errorf("cases: queue alert: %w", err)
+		}
+	}
 	return id, nil
 }
 

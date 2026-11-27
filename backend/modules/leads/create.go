@@ -154,5 +154,11 @@ func (s *Service) insertLead(ctx context.Context, q *leadsdb.Queries, actor acce
 	if err := queueDueToday(ctx, q, id, now); err != nil {
 		return 0, err
 	}
+	// A lead added for someone else tells them, as reassigning does.
+	if assigneeID != actor.ID {
+		if err := s.notifier.QueueLeadAssigned(ctx, id, assigneeID); err != nil {
+			return 0, err
+		}
+	}
 	return id, nil
 }

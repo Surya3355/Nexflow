@@ -19,6 +19,8 @@ type AlertLog struct {
 	Attempts        int32
 	LastError       pgtype.Text
 	LeadID          pgtype.Int8
+	SkippedAt       pgtype.Timestamptz
+	SkipReason      pgtype.Text
 }
 
 type Archive struct {
@@ -205,6 +207,11 @@ type DropdownValue struct {
 	CreatedBy pgtype.Int8
 	UpdatedAt pgtype.Timestamptz
 	UpdatedBy pgtype.Int8
+}
+
+type JobRun struct {
+	Name    string
+	LastDay pgtype.Date
 }
 
 type Lead struct {
