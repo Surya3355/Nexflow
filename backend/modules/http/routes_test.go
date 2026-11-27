@@ -122,6 +122,7 @@ func (e *env) do(c *http.Client, method, path string, body any) *http.Response {
 		rd = bytes.NewReader(b)
 	}
 	req, _ := http.NewRequest(method, e.srv.URL+path, rd)
+	req.Header.Set("Origin", e.srv.URL) // as a browser on the app's own page does
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

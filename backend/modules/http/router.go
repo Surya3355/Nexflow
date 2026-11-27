@@ -31,12 +31,16 @@ type Deps struct {
 	Leads     *leads.Service
 	Officers  *officers.Service
 	Queries   *bankqueries.Service
+	// AllowedOrigins are other sites allowed to send changing requests, such
+	// as the Vite dev server. The app's own address is always allowed.
+	AllowedOrigins []string
 }
 
 // NewRouter returns the full API under /api. Login and the download link are
 // public; everything else needs a signed-in, active user.
 func NewRouter(d Deps) http.Handler {
 	r := chi.NewRouter()
+	r.Use(RequireSameOrigin(d.AllowedOrigins))
 	r.Use(d.Auth.SessionManager().LoadAndSave)
 	d.Auth.Mount(r)
 

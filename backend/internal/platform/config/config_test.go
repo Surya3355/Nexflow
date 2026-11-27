@@ -71,3 +71,16 @@ func TestLoadTrustProxy(t *testing.T) {
 		t.Fatal("NEXFLOW_TRUST_PROXY=true not read")
 	}
 }
+
+func TestLoadAllowedOrigins(t *testing.T) {
+	t.Setenv("NEXFLOW_DB_URL", "postgres://x")
+	t.Setenv("NEXFLOW_LINK_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("NEXFLOW_ALLOWED_ORIGINS", " http://localhost:5173 , http://localhost:8081,")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.AllowedOrigins) != 2 || cfg.AllowedOrigins[0] != "http://localhost:5173" || cfg.AllowedOrigins[1] != "http://localhost:8081" {
+		t.Fatalf("AllowedOrigins = %q", cfg.AllowedOrigins)
+	}
+}

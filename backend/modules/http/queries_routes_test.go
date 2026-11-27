@@ -23,6 +23,7 @@ func sendProof(t *testing.T, e *env, c *http.Client, queryID float64, note, name
 	}
 	mw.Close()
 	req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/queries/%d/send", e.srv.URL, int64(queryID)), &buf)
+	req.Header.Set("Origin", e.srv.URL)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	resp, err := c.Do(req)
 	if err != nil {

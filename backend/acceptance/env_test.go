@@ -143,6 +143,7 @@ func (e *env) call(c *http.Client, method, path string, body any) *http.Response
 		rd = bytes.NewReader(b)
 	}
 	req, _ := http.NewRequest(method, e.srv.URL+path, rd)
+	req.Header.Set("Origin", e.srv.URL) // as a browser on the app's own page does
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -223,6 +224,7 @@ func (e *env) upload(role access.Role, caseID int64, label, name string, content
 	_, _ = fw.Write(content)
 	_ = mw.Close()
 	req, _ := http.NewRequest("POST", fmt.Sprintf("%s/api/cases/%d/documents", e.srv.URL, caseID), &buf)
+	req.Header.Set("Origin", e.srv.URL)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	resp, err := e.clients[role].Do(req)
 	if err != nil {

@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 // Config holds the runtime settings for the API server.
@@ -16,18 +17,22 @@ type Config struct {
 	// TrustProxy makes the login limit read the client address from the
 	// X-Real-IP header nginx sets. Only when the API is reachable through nginx alone.
 	TrustProxy bool
+	// AllowedOrigins are other sites that may send changing requests
+	// (NEXFLOW_ALLOWED_ORIGINS, comma separated), for example the Vite dev server.
+	AllowedOrigins []string
 }
 
 // Load reads settings from the environment. NEXFLOW_DB_URL is required.
 // NEXFLOW_HTTP_ADDR defaults to ":8080".
 func Load() (Config, error) {
 	cfg := Config{
-		DBURL:         os.Getenv("NEXFLOW_DB_URL"),
-		HTTPAddr:      os.Getenv("NEXFLOW_HTTP_ADDR"),
-		LinkSecret:    []byte(os.Getenv("NEXFLOW_LINK_SECRET")),
-		UploadDir:     os.Getenv("NEXFLOW_UPLOAD_DIR"),
-		SecureCookies: os.Getenv("NEXFLOW_INSECURE_COOKIES") != "true",
-		TrustProxy:    os.Getenv("NEXFLOW_TRUST_PROXY") == "true",
+		DBURL:          os.Getenv("NEXFLOW_DB_URL"),
+		HTTPAddr:       os.Getenv("NEXFLOW_HTTP_ADDR"),
+		LinkSecret:     []byte(os.Getenv("NEXFLOW_LINK_SECRET")),
+		UploadDir:      os.Getenv("NEXFLOW_UPLOAD_DIR"),
+		SecureCookies:  os.Getenv("NEXFLOW_INSECURE_COOKIES") != "true",
+		TrustProxy:     os.Getenv("NEXFLOW_TRUST_PROXY") == "true",
+		AllowedOrigins: splitList(os.Getenv("NEXFLOW_ALLOWED_ORIGINS")),
 	}
 	if cfg.HTTPAddr == "" {
 		cfg.HTTPAddr = ":8080"
@@ -65,4 +70,15 @@ func weakSecret(s []byte) bool {
 		seen[b] = true
 	}
 	return len(seen) < minSecretVariety
+}
+
+// splitList reads a comma-separated setting, skipping blanks.
+func splitList(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

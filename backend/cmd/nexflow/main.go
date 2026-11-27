@@ -70,18 +70,19 @@ func main() {
 	auth := access.NewHandler(accessSvc, access.NewSessionManager(pool, cfg.SecureCookies))
 	auth.TrustProxy(cfg.TrustProxy)
 	handler := apihttp.NewRouter(apihttp.Deps{
-		Auth:      auth,
-		Access:    accessSvc,
-		Workflows: wf,
-		Customers: customers.NewService(pool, rec),
-		Cases:     caseSvc,
-		Documents: docs,
-		Linker:    documents.NewLinker(cfg.LinkSecret),
-		Archive:   archiveSvc,
-		Reports:   reports.NewService(pool),
-		Leads:     leadSvc,
-		Officers:  officers.NewService(pool, wf, rec),
-		Queries:   bankqueries.NewService(pool, docs, rec),
+		Auth:           auth,
+		Access:         accessSvc,
+		Workflows:      wf,
+		Customers:      customers.NewService(pool, rec),
+		Cases:          caseSvc,
+		Documents:      docs,
+		Linker:         documents.NewLinker(cfg.LinkSecret),
+		Archive:        archiveSvc,
+		Reports:        reports.NewService(pool),
+		Leads:          leadSvc,
+		Officers:       officers.NewService(pool, wf, rec),
+		Queries:        bankqueries.NewService(pool, docs, rec),
+		AllowedOrigins: cfg.AllowedOrigins,
 	})
 
 	jobs := Jobs{Archive: archiveSvc, Queue: queue, Sender: unconfiguredSender{}}
