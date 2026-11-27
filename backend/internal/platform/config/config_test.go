@@ -58,3 +58,16 @@ func TestLoadAcceptsHexSecretMissingDigits(t *testing.T) {
 		t.Fatalf("hex secret with 12 different digits refused: %v", err)
 	}
 }
+
+func TestLoadTrustProxy(t *testing.T) {
+	t.Setenv("NEXFLOW_DB_URL", "postgres://x")
+	t.Setenv("NEXFLOW_LINK_SECRET", "0123456789abcdef0123456789abcdef")
+	cfg, _ := Load()
+	if cfg.TrustProxy {
+		t.Fatal("TrustProxy on by default")
+	}
+	t.Setenv("NEXFLOW_TRUST_PROXY", "true")
+	if cfg, _ = Load(); !cfg.TrustProxy {
+		t.Fatal("NEXFLOW_TRUST_PROXY=true not read")
+	}
+}

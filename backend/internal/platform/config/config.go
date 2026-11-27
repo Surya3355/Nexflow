@@ -13,6 +13,9 @@ type Config struct {
 	LinkSecret    []byte
 	UploadDir     string
 	SecureCookies bool
+	// TrustProxy makes the login limit read the client address from the
+	// X-Real-IP header nginx sets. Only when the API is reachable through nginx alone.
+	TrustProxy bool
 }
 
 // Load reads settings from the environment. NEXFLOW_DB_URL is required.
@@ -24,6 +27,7 @@ func Load() (Config, error) {
 		LinkSecret:    []byte(os.Getenv("NEXFLOW_LINK_SECRET")),
 		UploadDir:     os.Getenv("NEXFLOW_UPLOAD_DIR"),
 		SecureCookies: os.Getenv("NEXFLOW_INSECURE_COOKIES") != "true",
+		TrustProxy:    os.Getenv("NEXFLOW_TRUST_PROXY") == "true",
 	}
 	if cfg.HTTPAddr == "" {
 		cfg.HTTPAddr = ":8080"

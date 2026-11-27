@@ -40,14 +40,26 @@ func NewSessionManager(pool *pgxpool.Pool, secure bool) *scs.SessionManager {
 
 // Handler serves the login, logout and current-user endpoints.
 type Handler struct {
-	svc *Service
-	sm  *scs.SessionManager
+	svc        *Service
+	sm         *scs.SessionManager
+	addrs      *AddressLimiter
+	gate       *HashGate
+	trustProxy bool
 }
 
-// NewHandler wires the access service to the session manager.
+// NewHandler wires the access service to the session manager, with the
+// default login limits.
 func NewHandler(svc *Service, sm *scs.SessionManager) *Handler {
-	return &Handler{svc: svc, sm: sm}
+	return &Handler{
+		svc: svc, sm: sm,
+		addrs: NewAddressLimiter(loginsPerAddressPerMinute, time.Now),
+		gate:  NewHashGate(maxConcurrentHashes, hashWait),
+	}
 }
+
+// TrustProxy makes the login limit use the X-Real-IP header set by nginx.
+// Only for when the API is reachable through the proxy alone.
+func (h *Handler) TrustProxy(on bool) { h.trustProxy = on }
 
 // Routes returns the access routes. Session loading and saving wrap all of them.
 func (h *Handler) Routes() http.Handler {
@@ -92,7 +104,23 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	u, err := h.svc.Authenticate(r.Context(), in.Username, in.Password)
+	if !h.addrs.Allow(ClientAddr(r, h.trustProxy)) {
+		writeJSONError(w, http.StatusTooManyRequests, "Too many attempts. Wait a minute.")
+		return
+	}
+	var u User
+	var err error
+	if gateErr := h.gate.Do(r.Context(), func() {
+		u, err = h.svc.Authenticate(r.Context(), in.Username, in.Password)
+	}); gateErr != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "Busy, try again.")
+		return
+	}
+	var locked *LockedError
+	if errors.As(err, &locked) {
+		writeJSONError(w, http.StatusTooManyRequests, locked.Message(h.svc.clock()))
+		return
+	}
 	if errors.Is(err, ErrInvalidCredentials) {
 		writeJSONError(w, http.StatusUnauthorized, ErrInvalidCredentials.Error())
 		return

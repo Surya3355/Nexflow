@@ -11,6 +11,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearLoginFailures = `-- name: ClearLoginFailures :exec
+UPDATE users SET failed_logins = 0, locked_until = NULL
+WHERE id = $1 AND (failed_logins <> 0 OR locked_until IS NOT NULL)
+`
+
+func (q *Queries) ClearLoginFailures(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, clearLoginFailures, id)
+	return err
+}
+
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, username, full_name, password_hash, role, is_active, password_changed_at
 FROM users WHERE id = $1
@@ -42,7 +52,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, er
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, full_name, password_hash, role, is_active, password_changed_at
+SELECT id, username, full_name, password_hash, role, is_active, password_changed_at, locked_until
 FROM users WHERE username = $1
 `
 
@@ -54,6 +64,7 @@ type GetUserByUsernameRow struct {
 	Role              string
 	IsActive          bool
 	PasswordChangedAt pgtype.Timestamptz
+	LockedUntil       pgtype.Timestamptz
 }
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUserByUsernameRow, error) {
@@ -67,6 +78,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUs
 		&i.Role,
 		&i.IsActive,
 		&i.PasswordChangedAt,
+		&i.LockedUntil,
 	)
 	return i, err
 }
@@ -200,9 +212,33 @@ func (q *Queries) ListTeam(ctx context.Context) ([]ListTeamRow, error) {
 	return items, nil
 }
 
+const recordLoginFailure = `-- name: RecordLoginFailure :one
+UPDATE users
+SET failed_logins = CASE WHEN failed_logins + 1 >= $1::int THEN 0 ELSE failed_logins + 1 END,
+    locked_until  = CASE WHEN failed_logins + 1 >= $1::int THEN $2::timestamptz ELSE locked_until END
+WHERE id = $3
+RETURNING locked_until
+`
+
+type RecordLoginFailureParams struct {
+	MaxFailures int32
+	LockUntil   pgtype.Timestamptz
+	ID          int64
+}
+
+// One more wrong password. The 5th in a row locks the user until lock_until and
+// starts the count again, so after the lock ends there are 5 more tries.
+func (q *Queries) RecordLoginFailure(ctx context.Context, arg RecordLoginFailureParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, recordLoginFailure, arg.MaxFailures, arg.LockUntil, arg.ID)
+	var locked_until pgtype.Timestamptz
+	err := row.Scan(&locked_until)
+	return locked_until, err
+}
+
 const updateUserPassword = `-- name: UpdateUserPassword :exec
 UPDATE users
-SET password_hash = $2, password_changed_at = now(), updated_at = now(), updated_by = $3
+SET password_hash = $2, password_changed_at = now(), updated_at = now(), updated_by = $3,
+    failed_logins = 0, locked_until = NULL
 WHERE id = $1
 `
 

@@ -66,8 +66,10 @@ func main() {
 	archiveSvc.SetFileRemover(store)
 
 	docs := documents.NewService(pool, store, rec)
+	auth := access.NewHandler(accessSvc, access.NewSessionManager(pool, cfg.SecureCookies))
+	auth.TrustProxy(cfg.TrustProxy)
 	handler := apihttp.NewRouter(apihttp.Deps{
-		Auth:      access.NewHandler(accessSvc, access.NewSessionManager(pool, cfg.SecureCookies)),
+		Auth:      auth,
 		Access:    accessSvc,
 		Workflows: wf,
 		Customers: customers.NewService(pool, rec),

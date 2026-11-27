@@ -52,15 +52,20 @@ type NewUser struct {
 
 // Service holds the database handle and the audit recorder for access actions.
 type Service struct {
-	pool *pgxpool.Pool
-	q    *accessdb.Queries
-	rec  history.Recorder
+	pool    *pgxpool.Pool
+	q       *accessdb.Queries
+	rec     history.Recorder
+	clock   func() time.Time
+	unknown *unknownLocks
 }
 
 // NewService returns an access service on pool that writes audit entries to rec.
 func NewService(pool *pgxpool.Pool, rec history.Recorder) *Service {
-	return &Service{pool: pool, q: accessdb.New(pool), rec: rec}
+	return &Service{pool: pool, q: accessdb.New(pool), rec: rec, clock: time.Now, unknown: newUnknownLocks()}
 }
+
+// SetClock replaces the clock used by the login lock. Tests use it.
+func (s *Service) SetClock(clock func() time.Time) { s.clock = clock }
 
 // CreateUser adds a staff account. Only an actor who may manage users can do it.
 // The username is stored lowercase and must be unique.

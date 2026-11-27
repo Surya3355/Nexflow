@@ -297,4 +297,6 @@ type User struct {
 	UpdatedAt         pgtype.Timestamptz
 	UpdatedBy         pgtype.Int8
 	Email             pgtype.Text
+	FailedLogins      int32
+	LockedUntil       pgtype.Timestamptz
 }

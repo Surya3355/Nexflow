@@ -30,6 +30,7 @@ services:
       NEXFLOW_LINK_SECRET: ${NEXFLOW_LINK_SECRET:?set NEXFLOW_LINK_SECRET in .env}
       NEXFLOW_UPLOAD_DIR: /data/uploads
       NEXFLOW_INSECURE_COOKIES: "true"   # plain HTTP on localhost only
+      NEXFLOW_TRUST_PROXY: "true"        # login limit reads X-Real-IP from nginx
     volumes:
       - uploads:/data/uploads
     ports:
