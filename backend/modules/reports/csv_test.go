@@ -96,3 +96,11 @@ func TestCSVNeutralisesFormulas(t *testing.T) {
 		t.Fatalf("formula cell = %q, want a leading apostrophe", got)
 	}
 }
+
+func TestNeutraliseTabCR(t *testing.T) {
+	for in, want := range map[string]string{"\t=1+1": "'\t=1+1", "\r=1+1": "'\r=1+1", "=SUM(A1)": "'=SUM(A1)", "Ravi": "Ravi"} {
+		if got := neutraliseFormula(in); got != want {
+			t.Errorf("neutraliseFormula(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

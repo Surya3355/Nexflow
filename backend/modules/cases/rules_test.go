@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/Surya3355/nexflow/backend/modules/history"
 )
 
 func TestAmountRules(t *testing.T) {
@@ -140,5 +142,27 @@ func TestChangeStageReturnsFullCase(t *testing.T) {
 	if moved.ProjectType == nil || moved.BuilderContact == nil {
 		t.Fatalf("ChangeStage case differs from Get: project type %v vs %v, contact %v vs %v",
 			moved.ProjectType, got.ProjectType, moved.BuilderContact, got.BuilderContact)
+	}
+}
+
+func TestCaseUpdatedAuditHasAmounts(t *testing.T) {
+	f := newFixture(t)
+	c := newCase(t, f)
+	if _, err := f.svc.Update(context.Background(), f.actor, c.ID, CaseFields{LoanAmount: "2500000"}); err != nil {
+		t.Fatal(err)
+	}
+	var e *history.Entry
+	for i := range f.rec.entries {
+		if f.rec.entries[i].Action == "case.updated" {
+			e = &f.rec.entries[i]
+		}
+	}
+	if e == nil {
+		t.Fatal("no case.updated entry")
+	}
+	d, _ := e.Details.(map[string]any)
+	amt, _ := d["loan_amount"].(map[string]any)
+	if amt["before"] != "1000000.00" || amt["after"] != "2500000.00" {
+		t.Fatalf("case.updated details = %v, want loan_amount before 1000000.00 after 2500000.00", e.Details)
 	}
 }

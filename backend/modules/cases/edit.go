@@ -2,12 +2,14 @@ package cases
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/Surya3355/nexflow/backend/modules/access"
 	"github.com/Surya3355/nexflow/backend/modules/cases/casesdb"
 	"github.com/Surya3355/nexflow/backend/modules/history"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -28,10 +30,6 @@ func (s *Service) Update(ctx context.Context, actor access.User, caseID int64, i
 	if err != nil {
 		return Case{}, err
 	}
-	if _, err := s.load(ctx, caseID); err != nil {
-		return Case{}, err
-	}
-
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Case{}, fmt.Errorf("cases: begin: %w", err)
@@ -39,6 +37,13 @@ func (s *Service) Update(ctx context.Context, actor access.User, caseID int64, i
 	defer func() { _ = tx.Rollback(ctx) }()
 	txCtx := history.WithTx(ctx, tx)
 	q := s.q.WithTx(tx)
+	before, err := q.LockCase(txCtx, caseID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Case{}, ErrCaseNotFound
+	}
+	if err != nil {
+		return Case{}, fmt.Errorf("cases: lock: %w", err)
+	}
 
 	var follow pgtype.Date
 	if in.FollowUpDate != nil {
@@ -50,9 +55,17 @@ func (s *Service) Update(ctx context.Context, actor access.User, caseID int64, i
 	}); err != nil {
 		return Case{}, fmt.Errorf("cases: update: %w", err)
 	}
+	after, err := q.LockCase(txCtx, caseID)
+	if err != nil {
+		return Case{}, fmt.Errorf("cases: reload: %w", err)
+	}
+	details := map[string]any{}
+	if b, a := numericString(before.LoanAmount), numericString(after.LoanAmount); b != a {
+		details["loan_amount"] = map[string]any{"before": b, "after": a}
+	}
 	actorID, id := actor.ID, caseID
 	if err := s.rec.Record(txCtx, history.Entry{
-		ActorUserID: &actorID, Action: "case.updated", EntityType: "case", EntityID: &id,
+		ActorUserID: &actorID, Action: "case.updated", EntityType: "case", EntityID: &id, Details: details,
 	}); err != nil {
 		return Case{}, fmt.Errorf("cases: audit: %w", err)
 	}

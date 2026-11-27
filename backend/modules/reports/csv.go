@@ -64,7 +64,7 @@ func neutraliseFormula(s string) string {
 		return s
 	}
 	switch s[0] {
-	case '=', '+', '-', '@':
+	case '=', '+', '-', '@', '\t', '\r':
 		return "'" + s
 	}
 	return s
