@@ -53,6 +53,14 @@ func (s *Service) DeleteCase(ctx context.Context, actor access.User, caseID int6
 	q := s.q.WithTx(tx)
 	txCtx := history.WithTx(ctx, tx)
 
+	// Lock the case first, as every other change does, so an upload or stage
+	// move in progress finishes before the archive copy is read.
+	var lockedID int64
+	if err := tx.QueryRow(txCtx, `SELECT id FROM cases WHERE id = $1 FOR UPDATE`, caseID).Scan(&lockedID); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("archive: lock case: %w", err)
+	}
 	caseDoc, err := q.CaseRowJSON(txCtx, caseID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound

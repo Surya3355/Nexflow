@@ -41,6 +41,9 @@ func (s *Service) PurgeExpired(ctx context.Context, now time.Time) (PurgeResult,
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var res PurgeResult
+	// Files are deleted only after the commit, so a failed purge never
+	// leaves rows pointing at missing files.
+	var fileKeys []string
 
 	rows, err := tx.Query(ctx, `SELECT id, snapshot::text FROM archive WHERE purge_after < $1 FOR UPDATE`, now)
 	if err != nil {
@@ -68,11 +71,7 @@ func (s *Service) PurgeExpired(ctx context.Context, now time.Time) (PurgeResult,
 		if err != nil {
 			return PurgeResult{}, err
 		}
-		for _, key := range keys {
-			if err := s.files.Delete(key); err != nil {
-				return PurgeResult{}, fmt.Errorf("purge: delete file %s: %w", key, err)
-			}
-		}
+		fileKeys = append(fileKeys, keys...)
 		if _, err := tx.Exec(ctx, `DELETE FROM archive WHERE id = $1`, a.id); err != nil {
 			return PurgeResult{}, fmt.Errorf("purge: delete archive row: %w", err)
 		}
@@ -103,9 +102,7 @@ func (s *Service) PurgeExpired(ctx context.Context, now time.Time) (PurgeResult,
 		return PurgeResult{}, fmt.Errorf("purge: document rows: %w", err)
 	}
 	for _, d := range expiredDocs {
-		if err := s.files.Delete(d.key); err != nil {
-			return PurgeResult{}, fmt.Errorf("purge: delete file %s: %w", d.key, err)
-		}
+		fileKeys = append(fileKeys, d.key)
 		if _, err := tx.Exec(ctx, `DELETE FROM documents WHERE id = $1`, d.id); err != nil {
 			return PurgeResult{}, fmt.Errorf("purge: delete document row: %w", err)
 		}
@@ -115,7 +112,15 @@ func (s *Service) PurgeExpired(ctx context.Context, now time.Time) (PurgeResult,
 	if err := tx.Commit(ctx); err != nil {
 		return PurgeResult{}, fmt.Errorf("purge: commit: %w", err)
 	}
-	return res, nil
+	// The rows are gone; a file that can't be deleted now is only left over
+	// on disk. Report it, but keep going with the rest.
+	var fileErr error
+	for _, key := range fileKeys {
+		if err := s.files.Delete(key); err != nil && fileErr == nil {
+			fileErr = fmt.Errorf("purge: delete file %s: %w", key, err)
+		}
+	}
+	return res, fileErr
 }
 
 // snapshotDocumentKeys returns the storage keys of the documents in an archive snapshot.
