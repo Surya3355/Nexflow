@@ -27,7 +27,7 @@ func (w OpenWork) total() int { return w.Leads + w.Cases + w.Queries }
 // another user, inside the transaction carried by ctx (history.WithTx). The
 // handover module provides it, since access can't import cases or leads.
 type Reassigner interface {
-	ReassignAllTx(ctx context.Context, from, to int64) (leads, cases, queries int, err error)
+	ReassignAllTx(ctx context.Context, actorID, from, to int64) (leads, cases, queries int, err error)
 }
 
 // SetReassigner sets the handover used by Deactivate.
@@ -92,7 +92,7 @@ func (s *Service) Deactivate(ctx context.Context, actor User, userID int64, take
 			if s.reassigner == nil {
 				return fmt.Errorf("access: no handover configured")
 			}
-			leads, cases, queries, err := s.reassigner.ReassignAllTx(txCtx, userID, *takeoverID)
+			leads, cases, queries, err := s.reassigner.ReassignAllTx(txCtx, actor.ID, userID, *takeoverID)
 			if err != nil {
 				return fmt.Errorf("access: handover: %w", err)
 			}

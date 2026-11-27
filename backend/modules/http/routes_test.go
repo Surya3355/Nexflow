@@ -16,11 +16,13 @@ import (
 	"github.com/Surya3355/nexflow/backend/internal/platform/testdb"
 	"github.com/Surya3355/nexflow/backend/migrations"
 	"github.com/Surya3355/nexflow/backend/modules/access"
+	"github.com/Surya3355/nexflow/backend/modules/alerts"
 	"github.com/Surya3355/nexflow/backend/modules/archive"
 	"github.com/Surya3355/nexflow/backend/modules/bankqueries"
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
+	"github.com/Surya3355/nexflow/backend/modules/handover"
 	"github.com/Surya3355/nexflow/backend/modules/history"
 	"github.com/Surya3355/nexflow/backend/modules/leads"
 	"github.com/Surya3355/nexflow/backend/modules/officers"
@@ -50,6 +52,7 @@ func newEnv(t *testing.T) *env {
 	}
 	rec := history.NewPgRecorder(pool)
 	accessSvc := access.NewService(pool, rec)
+	accessSvc.SetReassigner(handover.New(rec, alerts.NewQueue(pool)))
 	sm := access.NewSessionManager(pool, false)
 	wf := workflows.NewService(pool, rec)
 	e := &env{t: t, pool: pool, clients: map[access.Role]*http.Client{}, ids: map[string]int64{}}

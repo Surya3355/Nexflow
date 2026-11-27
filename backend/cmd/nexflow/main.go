@@ -18,6 +18,7 @@ import (
 	"github.com/Surya3355/nexflow/backend/modules/cases"
 	"github.com/Surya3355/nexflow/backend/modules/customers"
 	"github.com/Surya3355/nexflow/backend/modules/documents"
+	"github.com/Surya3355/nexflow/backend/modules/handover"
 	"github.com/Surya3355/nexflow/backend/modules/history"
 	apihttp "github.com/Surya3355/nexflow/backend/modules/http"
 	"github.com/Surya3355/nexflow/backend/modules/leads"
@@ -57,6 +58,7 @@ func main() {
 	}
 	queue := alerts.NewQueue(pool)
 	accessSvc := access.NewService(pool, rec)
+	accessSvc.SetReassigner(handover.New(rec, queue))
 	wf := workflows.NewService(pool, rec)
 	caseSvc := cases.NewService(pool, wf, rec)
 	caseSvc.SetNotifier(queue)

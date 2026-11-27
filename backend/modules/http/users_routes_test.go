@@ -104,3 +104,19 @@ func TestUserRoutesAdminOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestDeactivateWithTakeoverMovesCase(t *testing.T) {
+	e := newEnv(t)
+	admin := e.clients[access.RoleAdmin]
+	resp := e.do(admin, "POST", fmt.Sprintf("/api/admin/users/%d/deactivate", e.ids["employee"]),
+		map[string]any{"takeover_id": e.ids["manager"]})
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("switch off with takeover: %d %s", resp.StatusCode, readAll(t, resp))
+	}
+	resp.Body.Close()
+	var assignee int64
+	mustScan(t, e.pool.QueryRow(t.Context(), `SELECT assignee_id FROM cases WHERE id = $1`, e.ids["case"]), &assignee)
+	if assignee != e.ids["manager"] {
+		t.Fatalf("case assignee = %d, want the manager %d", assignee, e.ids["manager"])
+	}
+}

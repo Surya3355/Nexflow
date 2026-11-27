@@ -15,7 +15,7 @@ type fakeReassigner struct {
 	called   bool
 }
 
-func (f *fakeReassigner) ReassignAllTx(_ context.Context, from, to int64) (int, int, int, error) {
+func (f *fakeReassigner) ReassignAllTx(_ context.Context, _, from, to int64) (int, int, int, error) {
 	f.called, f.from, f.to = true, from, to
 	return 1, 2, 3, nil
 }
