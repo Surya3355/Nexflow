@@ -1,4 +1,14 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+/** Elements that reach past the right edge of the screen, to name them when a check fails. */
+async function tooWide(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const edge = document.documentElement.clientWidth + 0.5;
+    return [...document.querySelectorAll("body *")]
+      .filter((el) => el.getBoundingClientRect().right > edge)
+      .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 80)} right=${Math.round(el.getBoundingClientRect().right)} "${(el.textContent ?? "").trim().slice(0, 40)}"`);
+  });
+}
 
 // Spec §12 and plan Task 35: no horizontal scroll at phone width.
 test("login page has no horizontal scroll at 360 px", async ({ page }) => {
@@ -154,7 +164,7 @@ test("admin project form has no horizontal scroll at 360 px", async ({ page }) =
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
-  expect(overflow).toBeLessThanOrEqual(0);
+  expect(overflow, `elements past the right edge:\n${(await tooWide(page)).join("\n")}`).toBeLessThanOrEqual(0);
 });
 
 // Spec 2026-11-24 §4.3: the lead page shows the builder contact with a call link.
