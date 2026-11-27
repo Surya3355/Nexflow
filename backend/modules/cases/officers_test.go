@@ -75,6 +75,9 @@ func TestMoveWithoutOfficerKeepsCurrent(t *testing.T) {
 	if err := moveTo(t, f, c, bank, "dovr", 0); err != nil {
 		t.Fatal(err)
 	}
+	if err := moveTo(t, f, c, bank, "link_sent", 0); err != nil {
+		t.Fatal(err)
+	}
 	if err := moveTo(t, f, c, bank, "dovr", ravi); err != nil {
 		t.Fatal(err)
 	}

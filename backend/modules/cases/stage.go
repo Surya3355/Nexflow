@@ -126,6 +126,9 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID int
 	if to == nil {
 		return Case{}, ErrStageNotForBank
 	}
+	if to.ID == locked.CurrentStageID {
+		return Case{}, ErrAlreadyAtStage
+	}
 	if m.OfficerID != 0 && to.OfficerTeam == "" {
 		return Case{}, ErrOfficerInvalid
 	}
@@ -231,14 +234,11 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID int
 		return Case{}, fmt.Errorf("cases: audit: %w", err)
 	}
 
-	row, err := q.GetCase(txCtx, caseID)
-	if err != nil {
-		return Case{}, fmt.Errorf("cases: reload: %w", err)
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return Case{}, fmt.Errorf("cases: commit: %w", err)
 	}
-	return toCase(row), nil
+	// The same full case as opening it: project type and builder contact included.
+	return s.load(ctx, caseID)
 }
 
 // syncPurgeDate sets the document purge date when a case becomes completed
@@ -334,3 +334,7 @@ func parseRate(raw string) (pgtype.Numeric, error) {
 	}
 	return n, nil
 }
+
+// ErrAlreadyAtStage refuses a "move" to the stage the case is on, which
+// would only add a duplicate history row.
+var ErrAlreadyAtStage = errors.New("cases: the case is already at this stage")

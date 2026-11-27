@@ -99,3 +99,46 @@ func TestBadInterestRateNot500(t *testing.T) {
 		}
 	}
 }
+
+func TestMoveToCurrentStage(t *testing.T) {
+	f := newFixture(t)
+	c := newCase(t, f)
+	before := f.count(t, `SELECT count(*) FROM case_stage_events WHERE case_id = $1`, c.ID)
+	_, err := f.svc.ChangeStage(context.Background(), f.actor, c.ID, StageMove{ToStageID: c.CurrentStageID})
+	if !errors.Is(err, ErrAlreadyAtStage) {
+		t.Fatalf("move to current stage: err = %v, want ErrAlreadyAtStage", err)
+	}
+	if after := f.count(t, `SELECT count(*) FROM case_stage_events WHERE case_id = $1`, c.ID); after != before {
+		t.Fatalf("history rows %d -> %d, want no new row", before, after)
+	}
+}
+
+func TestChangeStageReturnsFullCase(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	project := addProject(t, f, "Prestige")
+	if _, err := f.pool.Exec(ctx, `UPDATE projects SET type = 'villas', address = 'Road 1' WHERE id = $1`, project); err != nil {
+		t.Fatal(err)
+	}
+	in := caseOn(f, project, addContact(t, f, project, "9876500001"))
+	in.UnitNumber = "B-1402"
+	c, err := f.svc.Create(ctx, f.actor, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "logged_in"), TrackingNumber: tracking("AB123")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.svc.Get(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProjectType == nil || got.BuilderContact == nil {
+		t.Fatal("fixture: Get has no project type or builder contact")
+	}
+	if moved.ProjectType == nil || moved.BuilderContact == nil {
+		t.Fatalf("ChangeStage case differs from Get: project type %v vs %v, contact %v vs %v",
+			moved.ProjectType, got.ProjectType, moved.BuilderContact, got.BuilderContact)
+	}
+}

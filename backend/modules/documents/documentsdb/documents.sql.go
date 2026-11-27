@@ -243,11 +243,12 @@ func (q *Queries) LockCaseForDocument(ctx context.Context, id int64) (LockCaseFo
 	return i, err
 }
 
-const replaceDocument = `-- name: ReplaceDocument :exec
+const replaceDocument = `-- name: ReplaceDocument :one
 UPDATE documents
 SET stage_id = $2, file_name = $3, content_type = $4, size_bytes = $5,
     storage_key = $6, uploaded_at = now(), uploaded_by = $7
 WHERE id = $1
+RETURNING uploaded_at
 `
 
 type ReplaceDocumentParams struct {
@@ -260,8 +261,8 @@ type ReplaceDocumentParams struct {
 	UploadedBy  int64
 }
 
-func (q *Queries) ReplaceDocument(ctx context.Context, arg ReplaceDocumentParams) error {
-	_, err := q.db.Exec(ctx, replaceDocument,
+func (q *Queries) ReplaceDocument(ctx context.Context, arg ReplaceDocumentParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, replaceDocument,
 		arg.ID,
 		arg.StageID,
 		arg.FileName,
@@ -270,5 +271,7 @@ func (q *Queries) ReplaceDocument(ctx context.Context, arg ReplaceDocumentParams
 		arg.StorageKey,
 		arg.UploadedBy,
 	)
-	return err
+	var uploaded_at pgtype.Timestamptz
+	err := row.Scan(&uploaded_at)
+	return uploaded_at, err
 }

@@ -1,6 +1,7 @@
 package documents
 
 import (
+	"time"
 	"context"
 	"testing"
 
@@ -105,4 +106,21 @@ func count(t *testing.T, pool *pgxpool.Pool, q string, args ...any) int {
 	var n int
 	mustScan(t, pool.QueryRow(context.Background(), q, args...), &n)
 	return n
+}
+
+func TestReplaceReturnsUploadTime(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, err := f.svc.Upload(ctx, f.actor, f.caseID, "Bank statement", UploadedFile{Name: "a.pdf", Content: samplePDF(100)}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := f.svc.Upload(ctx, f.actor, f.caseID, "Bank statement", UploadedFile{Name: "b.pdf", Content: samplePDF(150)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored time.Time
+	mustScan(t, f.pool.QueryRow(ctx, `SELECT uploaded_at FROM documents WHERE id = $1`, second.ID), &stored)
+	if second.UploadedAt.IsZero() || !second.UploadedAt.Equal(stored) {
+		t.Fatalf("replace UploadedAt = %v, want the stored time %v", second.UploadedAt, stored)
+	}
 }

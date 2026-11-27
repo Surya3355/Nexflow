@@ -115,13 +115,14 @@ func (s *Service) Upload(ctx context.Context, actor access.User, caseID int64, l
 	switch {
 	case err == nil:
 		oldKey = existing.StorageKey
-		if err := q.ReplaceDocument(txCtx, documentsdb.ReplaceDocumentParams{
+		at, err := q.ReplaceDocument(txCtx, documentsdb.ReplaceDocumentParams{
 			ID: existing.ID, StageID: c.CurrentStageID, FileName: file.Name, ContentType: contentType,
 			SizeBytes: doc.SizeBytes, StorageKey: key, UploadedBy: actor.ID,
-		}); err != nil {
+		})
+		if err != nil {
 			return Document{}, fmt.Errorf("documents: replace: %w", err)
 		}
-		doc.ID = existing.ID
+		doc.ID, doc.UploadedAt = existing.ID, at.Time
 	case errors.Is(err, pgx.ErrNoRows):
 		row, err := q.InsertDocument(txCtx, documentsdb.InsertDocumentParams{
 			CaseID: caseID, StageID: c.CurrentStageID, Label: label, FileName: file.Name,

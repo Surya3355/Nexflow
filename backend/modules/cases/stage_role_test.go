@@ -223,6 +223,9 @@ func TestMoveBackAndReenterRecompletesWithoutPrompt(t *testing.T) {
 		t.Fatalf("payments = %d, want 1", n)
 	}
 	// A payment sent on re-entry after Full is refused, not doubled.
+	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "documentation")}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.svc.ChangeStage(ctx, f.actor, c.ID, StageMove{ToStageID: stageID(t, f, "disbursed"), Payment: full("5")}); !errors.Is(err, ErrAlreadyFullyPaid) {
 		t.Fatalf("second full err = %v, want ErrAlreadyFullyPaid", err)
 	}

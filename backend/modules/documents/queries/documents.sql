@@ -9,11 +9,12 @@ INSERT INTO documents (case_id, stage_id, label, file_name, content_type, size_b
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, uploaded_at;
 
--- name: ReplaceDocument :exec
+-- name: ReplaceDocument :one
 UPDATE documents
 SET stage_id = $2, file_name = $3, content_type = $4, size_bytes = $5,
     storage_key = $6, uploaded_at = now(), uploaded_by = $7
-WHERE id = $1;
+WHERE id = $1
+RETURNING uploaded_at;
 
 -- name: GetDocument :one
 SELECT id, case_id, stage_id, label, file_name, content_type, size_bytes, storage_key, uploaded_at, uploaded_by

@@ -83,6 +83,7 @@ func statusFor(err error) int {
 		errors.Is(err, bankqueries.ErrAlreadySent),
 		errors.Is(err, bankqueries.ErrNotSent),
 		errors.Is(err, documents.ErrCaseDropped),
+		errors.Is(err, cases.ErrAlreadyAtStage),
 		errors.Is(err, access.ErrTakeoverRequired),
 		errors.Is(err, access.ErrTakeoverInvalid),
 		errors.Is(err, access.ErrLastAdmin),
