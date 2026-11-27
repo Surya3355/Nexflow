@@ -46,13 +46,14 @@ export function BanksAndLists() {
   }
 
   return (
-    <div className="grid gap-4 min-[900px]:grid-cols-[2fr_1fr]">
+    <div className="grid gap-4 min-[900px]:grid-cols-[2fr_1fr] [&>*]:min-w-0">
       <section className={card}>
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Banks</h2>
           <button type="button" className={btnPrimary} onClick={() => setEditing({ kind: "add-bank" })}>+ Add bank</button>
         </div>
-        <table className="mt-3 min-w-full text-sm">
+        <div className="mt-3 overflow-x-auto">
+        <table className="min-w-full text-sm">
           <tbody>
             {banks.map((b) => (
               <tr key={b.id} className="border-t border-slate-100">
@@ -77,6 +78,7 @@ export function BanksAndLists() {
             ))}
           </tbody>
         </table>
+        </div>
         {bankError && <p role="alert" className={`${alertBox} mt-2`}>{bankError}</p>}
       </section>
       <section aria-label="Projects" className={`${card} min-[900px]:col-start-1`}>

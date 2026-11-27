@@ -150,7 +150,13 @@ test("project box on Home has no horizontal scroll at 360 px", async ({ page }) 
 // Spec 2026-11-24 §4.4: the admin project form with two long contacts fits a 360 px phone.
 test("admin project form has no horizontal scroll at 360 px", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
-  const adminApi: Record<string, unknown> = { ...api, "/api/me": { id: 9, username: "owner", full_name: "Owner", role: "admin" } };
+  // A long bank name too: the bank table must scroll inside its card, never widen the page
+  // (on GitHub's runner, wider fonts pushed the page 6 px past the edge).
+  const adminApi: Record<string, unknown> = {
+    ...api,
+    "/api/me": { id: 9, username: "owner", full_name: "Owner", role: "admin" },
+    "/api/config/banks": [{ id: 1, name: "HDFC" }, { id: 2, name: "Housing Development Finance Corporation Limited", stage_list: "standard", part_payments: false }],
+  };
   await page.route("**/api/**", (route) => {
     const body = adminApi[new URL(route.request().url()).pathname];
     return body === undefined ? route.fulfill({ status: 404, json: { error: "not mocked" } }) : route.fulfill({ json: body });
