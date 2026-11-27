@@ -316,6 +316,7 @@ Permanent (round 7). Never purged.
 | details | jsonb | what changed, small and readable |
 
 Index: `(entity_type, entity_id)`, `occurred_at`. Application database role has insert and select only on this table, so history cannot be edited.
+The running app acts as the role `nexflow_app` (`SET ROLE` on every connection, migration 000012): full use of every other table, insert and select only here. Migrations run as the database owner, which must be a member of `nexflow_app` (the migration grants it).
 
 ---
 

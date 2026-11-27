@@ -52,10 +52,18 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	pool := testdb.New(t)
-	if err := migrations.Up(pool); err != nil {
+	owner := testdb.New(t)
+	if err := migrations.Up(owner); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	// The API acts as the app role, as in production: it can't change history.
+	appCfg := owner.Config().Copy()
+	migrations.UseAppRole(appCfg)
+	pool, err := pgxpool.NewWithConfig(context.Background(), appCfg)
+	if err != nil {
+		t.Fatalf("app pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
 	rec := history.NewPgRecorder(pool)
 	accessSvc := access.NewService(pool, rec)
 	sm := access.NewSessionManager(pool, false)

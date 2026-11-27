@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Surya3355/nexflow/backend/internal/platform/config"
+	"github.com/Surya3355/nexflow/backend/migrations"
 	"github.com/Surya3355/nexflow/backend/modules/access"
 	"github.com/Surya3355/nexflow/backend/modules/alerts"
 	"github.com/Surya3355/nexflow/backend/modules/archive"
@@ -42,14 +44,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(ctx, cfg.DBURL)
+	pool, err := openAppPool(ctx, cfg.DBURL)
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		log.Fatal(err)
 	}
 	defer pool.Close()
-	if err := migrateUp(pool); err != nil {
-		log.Fatalf("migrations: %v", err)
-	}
 
 	rec := history.NewPgRecorder(pool)
 	store, err := documents.NewLocalStore(cfg.UploadDir)
@@ -105,4 +104,28 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+// openAppPool runs the migrations as the database owner, then opens the pool
+// the app serves from, which acts as the app role and can't change history.
+func openAppPool(ctx context.Context, url string) (*pgxpool.Pool, error) {
+	owner, err := pgxpool.New(ctx, url)
+	if err != nil {
+		return nil, fmt.Errorf("database: %w", err)
+	}
+	err = migrateUp(owner)
+	owner.Close()
+	if err != nil {
+		return nil, fmt.Errorf("migrations: %w", err)
+	}
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("database: %w", err)
+	}
+	migrations.UseAppRole(cfg)
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("database: %w", err)
+	}
+	return pool, nil
 }
