@@ -44,9 +44,12 @@ services:
 
   # Runs the Go test suite against the compose database: docker compose run --rm test
   test:
+    profiles: ["test"]   # not started by `docker compose up`
     build:
       context: ./backend
       target: test
+      additional_contexts:
+        infra: ./infra
     depends_on:
       db:
         condition: service_healthy

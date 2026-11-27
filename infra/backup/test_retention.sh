@@ -3,11 +3,9 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
-root=$(cd "$here/../.." && pwd)
-dir="$root/.superpowers/backup-retention-test"
-mkdir -p "$dir"
-# Start clean: remove only the dummy files this test creates.
-find "$dir" -maxdepth 1 -type f \( -name 'nexflow-*.dump' -o -name 'files-*.tar.gz' \) -exec rm -f {} +
+# A fresh temporary folder, so the test also runs where the repo is read-only.
+dir=$(mktemp -d)
+trap 'rm -rf "$dir"' EXIT
 
 for i in $(seq 0 34); do
   d=$(date -d "2026-10-01 +$i day" +%F)

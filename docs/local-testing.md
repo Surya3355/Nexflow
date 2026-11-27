@@ -1,6 +1,6 @@
 # Running and testing Nexflow locally
 
-This is for local testing only. It is not production-ready: no hosting, no email
+This is for local testing only. Not yet set up for a live server: no hosting, no email
 sending yet, local file storage, and plain HTTP cookies.
 
 ## Option A: Docker (easiest)
@@ -27,9 +27,10 @@ Needs Docker Desktop (or Docker Engine with the Compose plugin).
 
 4. Open the app at http://localhost:8081 and sign in. The API is at http://localhost:8080.
 
-5. Run the Go test suite against the compose database:
+5. Run the Go test suite against the compose database (the `test` service only runs
+   when asked; `docker compose up` does not start it):
 
-       docker compose run --rm test
+       docker compose run --rm --build test
 
 6. Stop, or reset everything including data:
 
@@ -38,7 +39,7 @@ Needs Docker Desktop (or Docker Engine with the Compose plugin).
 
 ## Option B: without Docker
 
-Needs: Go 1.25+, Node 22+, PostgreSQL 15+ (16 recommended), and a database called `nexflow`.
+Needs: Go 1.27+, Node 24+, PostgreSQL 15+ (16 recommended), and a database called `nexflow`.
 
 1. Settings. Export these in your shell (or put them in `.env` and `source` it):
 
