@@ -1,0 +1,176 @@
+package archive
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/jackc/pgx/v5"
+	"strings"
+	"time"
+)
+
+// PurgeResult counts what a purge removed.
+type PurgeResult struct {
+	ArchiveRows int
+	Documents   int
+}
+
+// FileRemover deletes a stored file by its key. Deleting a missing file must
+// succeed, so a purge can be retried safely.
+type FileRemover interface {
+	Delete(key string) error
+}
+
+type nopRemover struct{}
+
+func (nopRemover) Delete(string) error { return nil }
+
+// SetFileRemover sets the store used to delete files during purge.
+func (s *Service) SetFileRemover(r FileRemover) { s.files = r }
+
+// istZone is India Standard Time. Document dates are compared on IST days (spec §9).
+var istZone = time.FixedZone("IST", 5*60*60+30*60)
+
+// PurgeExpired removes archive rows and documents whose purge date has passed,
+// along with their stored files. Audit rows are kept (spec §4.6). Files are
+// deleted before their rows; if a file delete fails, the rows are kept and the
+// next run retries.
+func (s *Service) PurgeExpired(ctx context.Context, now time.Time) (PurgeResult, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return PurgeResult{}, fmt.Errorf("purge: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var res PurgeResult
+	// Files are deleted only after the commit, so a failed purge never
+	// leaves rows pointing at missing files.
+	var fileKeys []string
+
+	rows, err := tx.Query(ctx, `SELECT id, snapshot::text FROM archive WHERE purge_after < $1 FOR UPDATE`, now)
+	if err != nil {
+		return PurgeResult{}, fmt.Errorf("purge: archive: %w", err)
+	}
+	type archived struct {
+		id       int64
+		snapshot string
+	}
+	var expired []archived
+	for rows.Next() {
+		var a archived
+		if err := rows.Scan(&a.id, &a.snapshot); err != nil {
+			rows.Close()
+			return PurgeResult{}, fmt.Errorf("purge: scan archive: %w", err)
+		}
+		expired = append(expired, a)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return PurgeResult{}, fmt.Errorf("purge: archive rows: %w", err)
+	}
+	for _, a := range expired {
+		keys, err := snapshotDocumentKeys([]byte(a.snapshot))
+		if err != nil {
+			return PurgeResult{}, err
+		}
+		fileKeys = append(fileKeys, keys...)
+		if _, err := tx.Exec(ctx, `DELETE FROM archive WHERE id = $1`, a.id); err != nil {
+			return PurgeResult{}, fmt.Errorf("purge: delete archive row: %w", err)
+		}
+		res.ArchiveRows++
+	}
+
+	// Live documents of dropped or disbursed cases, past their purge date.
+	istDay := istDate(now)
+	docs, err := tx.Query(ctx, `SELECT id, storage_key FROM documents WHERE purge_after < $1::date FOR UPDATE`, istDay)
+	if err != nil {
+		return PurgeResult{}, fmt.Errorf("purge: documents: %w", err)
+	}
+	type doc struct {
+		id  int64
+		key string
+	}
+	var expiredDocs []doc
+	for docs.Next() {
+		var d doc
+		if err := docs.Scan(&d.id, &d.key); err != nil {
+			docs.Close()
+			return PurgeResult{}, fmt.Errorf("purge: scan document: %w", err)
+		}
+		expiredDocs = append(expiredDocs, d)
+	}
+	docs.Close()
+	if err := docs.Err(); err != nil {
+		return PurgeResult{}, fmt.Errorf("purge: document rows: %w", err)
+	}
+	for _, d := range expiredDocs {
+		fileKeys = append(fileKeys, d.key)
+		if _, err := tx.Exec(ctx, `DELETE FROM documents WHERE id = $1`, d.id); err != nil {
+			return PurgeResult{}, fmt.Errorf("purge: delete document row: %w", err)
+		}
+		res.Documents++
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return PurgeResult{}, fmt.Errorf("purge: commit: %w", err)
+	}
+	// The rows are gone. A file that can't be deleted now is recorded in
+	// pending_file_deletes and tried again on the next run (also files left
+	// over from earlier runs).
+	return res, s.deleteFiles(ctx, fileKeys)
+}
+
+// deleteFiles deletes the given files and any left over from earlier runs.
+// Failures are kept for the next run and named in the returned error.
+func (s *Service) deleteFiles(ctx context.Context, keys []string) error {
+	rows, err := s.pool.Query(ctx, `SELECT storage_key FROM pending_file_deletes`)
+	if err != nil {
+		return fmt.Errorf("purge: pending deletes: %w", err)
+	}
+	pending, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("purge: pending deletes: %w", err)
+	}
+	var failed []string
+	for _, key := range append(pending, keys...) {
+		if err := s.files.Delete(key); err != nil {
+			failed = append(failed, key)
+			if _, dbErr := s.pool.Exec(ctx, `INSERT INTO pending_file_deletes (storage_key, last_error) VALUES ($1, $2)
+				ON CONFLICT (storage_key) DO UPDATE SET failed_at = now(), last_error = EXCLUDED.last_error`, key, err.Error()); dbErr != nil {
+				return fmt.Errorf("purge: record pending delete %s: %w", key, dbErr)
+			}
+			continue
+		}
+		if _, err := s.pool.Exec(ctx, `DELETE FROM pending_file_deletes WHERE storage_key = $1`, key); err != nil {
+			return fmt.Errorf("purge: clear pending delete %s: %w", key, err)
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("purge: could not delete %d file(s), will retry: %s", len(failed), strings.Join(failed, ", "))
+	}
+	return nil
+}
+
+// snapshotDocumentKeys returns the storage keys of the documents in an archive snapshot.
+func snapshotDocumentKeys(snapshot []byte) ([]string, error) {
+	var snap struct {
+		Children struct {
+			Documents []struct {
+				StorageKey string `json:"storage_key"`
+			} `json:"documents"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal(snapshot, &snap); err != nil {
+		return nil, fmt.Errorf("purge: snapshot: %w", err)
+	}
+	keys := make([]string, 0, len(snap.Children.Documents))
+	for _, d := range snap.Children.Documents {
+		keys = append(keys, d.StorageKey)
+	}
+	return keys, nil
+}
+
+func istDate(t time.Time) time.Time {
+	local := t.In(istZone)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+}

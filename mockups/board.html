@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexflow · Version B · Board</title><link rel="stylesheet" href="style.css">
+<style>
+  .board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+  .col { background: #eceef2; border-radius: 10px; padding: 10px; min-height: 300px; }
+  .col h3 { font-size: 13px; margin: 0 0 8px; display: flex; justify-content: space-between; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .kcard { display: block; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; color: var(--text); font-size: 14px; }
+  .kcard:hover { border-color: var(--brand); }
+  .page.wide { max-width: 1400px; }
+</style></head>
+<body>
+<header class="top">
+  <span class="logo">Nexflow</span>
+  <nav><a class="on" href="board.html">Home</a><a href="reports.html">Reports</a><a href="admin.html">Admin</a></nav>
+  <span class="avatar">P</span>
+</header>
+
+<main class="page wide stack">
+  <p class="mock"><b>Version B: Board.</b> Every case is a card in its stage's column, so you can see the whole pipeline at a glance. Click a card and the case opens in a side panel without leaving the board. On a phone, the columns scroll sideways.</p>
+
+  <div class="row between">
+    <input class="searchbar" type="search" placeholder="Search name, mobile, tracking number or bank…" style="max-width:460px">
+    <div class="row"><span class="chip on">My cases</span><span class="chip">Everyone</span><span class="chip">Bank ▾</span><a class="btn primary" href="index.html#new">+ New customer</a></div>
+  </div>
+
+  <div class="board">
+    <div class="col"><h3>Received <span>2</span></h3>
+      <a class="kcard" href="#c1051"><b>Mohammed Imran</b><br><span class="muted">ICICI · ₹18,00,000</span><br><span class="badge grey">Today</span></a>
+      <a class="kcard" href="#c1051"><b>Geetha V</b><br><span class="muted">SBI · ₹22,00,000</span><br><span class="badge grey">2 days</span></a>
+    </div>
+    <div class="col"><h3>Logged in <span>1</span></h3>
+      <a class="kcard" href="#c1051"><b>Prakash J</b><br><span class="muted">HDFC · ₹38,00,000</span><br><span class="muted">HD-88410</span></a>
+    </div>
+    <div class="col"><h3>Under sanction <span>2</span></h3>
+      <a class="kcard" href="#c1042"><b>Ravi Kumar</b><br><span class="muted">HDFC · ₹45,00,000</span><br><span class="badge warn">No documents · 6 days</span></a>
+      <a class="kcard" href="#c1042"><b>Farah Khan</b><br><span class="muted">Axis · ₹29,00,000</span><br><span class="badge grey">3 days</span></a>
+    </div>
+    <div class="col"><h3>Sanctioned <span>1</span></h3>
+      <a class="kcard" href="#c1042"><b>Lakshmi Reddy</b><br><span class="muted">SBI · ₹32,50,000</span><br><span class="badge">2 days</span></a>
+    </div>
+    <div class="col"><h3>Documentation <span>0</span></h3>
+      <p class="muted" style="text-align:center;margin-top:30px">Nothing here</p>
+    </div>
+    <div class="col"><h3>Disbursed <span>1</span></h3>
+      <a class="kcard" href="#c1042"><b>Anitha S</b><br><span class="muted">HDFC · ₹60,00,000</span><br><span class="badge ok">12 Nov</span></a>
+    </div>
+  </div>
+  <p class="muted">Dropped cases are hidden from the board. A "Show dropped" chip could bring them back.</p>
+</main>
+
+<!-- Case opens in a side panel -->
+<div class="overlay" id="c1042"><div class="panel stack" style="width:min(480px,100%)">
+  <a class="close" href="#">×</a>
+  <div>
+    <h2 style="margin:0">Ravi Kumar · HDFC</h2>
+    <p class="muted" style="margin:4px 0 0">Case #1042 · ₹45,00,000 · 98480 12345 · <a href="customer.html">Customer page</a></p>
+  </div>
+  <div class="tracker"><span class="done"></span><span class="done"></span><span class="done"></span><span></span><span></span><span></span></div>
+  <p style="margin:0"><b>Under sanction</b> <span class="muted">for 6 days</span></p>
+  <div class="row"><a class="btn primary" href="case.html#move">Move to Sanctioned →</a><a class="btn small" href="case.html#move">Other…</a></div>
+  <div class="note warn">This stage needs a document. None uploaded yet.</div>
+  <div><div class="row between"><b>Documents</b><a class="btn small" href="case.html#upload">+ Upload</a></div>
+    <ul class="muted" style="padding-left:18px"><li>Salary slips · PDF</li><li>PAN card · JPG</li></ul></div>
+  <div><b>History</b>
+    <ol class="steps" style="font-size:14px">
+      <li class="done"><span class="dot">✓</span><div>Received <span class="muted">· 3 Nov · Priya</span></div></li>
+      <li class="done"><span class="dot">✓</span><div>Logged in <span class="muted">· 5 Nov · Priya</span></div></li>
+      <li class="now"><span class="dot">3</span><div>Under sanction <span class="muted">· 12 Nov</span></div></li>
+    </ol></div>
+  <a class="btn danger small" href="case.html#drop" style="align-self:flex-start">Drop this case…</a>
+</div></div>
+<div class="overlay" id="c1051"><div class="panel stack">
+  <a class="close" href="#">×</a>
+  <h2 style="margin:0">Mohammed Imran · ICICI</h2>
+  <p class="muted" style="margin:0">Case #1051 · ₹18,00,000 · Received today</p>
+  <div class="tracker"><span class="done"></span><span></span><span></span><span></span><span></span><span></span></div>
+  <label>Tracking number (needed for Logged in) <input placeholder="e.g. IC-55120"></label>
+  <a class="btn primary" href="#">Move to Logged in →</a>
+</div></div>
+</body></html>

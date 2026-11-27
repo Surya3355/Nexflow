@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexflow · Case</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header class="top">
+  <span class="logo">Nexflow</span>
+  <nav><a class="on" href="index.html">Home</a><a href="reports.html">Reports</a><a href="admin.html">Admin</a></nav>
+  <span class="avatar">P</span>
+</header>
+
+<main class="page stack">
+  <a href="index.html" class="muted">← Back to home</a>
+
+  <div class="card">
+    <div class="row between">
+      <div>
+        <h1>Case #1042 · HDFC</h1>
+        <p class="muted" style="margin:4px 0 0"><a href="customer.html">Ravi Kumar</a> · 98480 12345 · Tracking HD-88213</p>
+      </div>
+      <div style="text-align:right"><div style="font-size:22px;font-weight:700">₹45,00,000</div><span class="badge">Under sanction</span></div>
+    </div>
+    <div class="tracker" style="margin-top:14px"><span class="done"></span><span class="done"></span><span class="done"></span><span></span><span></span><span></span></div>
+  </div>
+
+  <p class="mock">The old page was one long column of forms. Now the stage list is the centre of the page, and the next step is a single button.</p>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Progress</h2>
+      <ol class="steps">
+        <li class="done"><span class="dot">✓</span><div>Received<br><span class="muted">3 Nov, 10:14 · Priya</span></div></li>
+        <li class="done"><span class="dot">✓</span><div>Logged in<br><span class="muted">5 Nov, 16:02 · Priya · Tracking HD-88213</span></div></li>
+        <li class="now"><span class="dot">3</span><div><b>Under sanction</b><br><span class="muted">Since 12 Nov · 6 days</span></div></li>
+        <li class="todo"><span class="dot">4</span><div>Sanctioned</div></li>
+        <li class="todo"><span class="dot">5</span><div>Documentation</div></li>
+        <li class="todo"><span class="dot">6</span><div>Disbursed</div></li>
+      </ol>
+      <div class="row" style="margin-top:10px">
+        <a class="btn primary" href="#move">Move to Sanctioned →</a>
+        <a class="btn small" href="#move">Other stage…</a>
+      </div>
+    </section>
+
+    <aside class="stack">
+      <section class="card">
+        <div class="row between"><h2 style="margin:0">Documents</h2><a class="btn small" href="#upload">+ Upload</a></div>
+        <div class="note warn" style="margin-top:10px">This stage needs at least one document. None uploaded yet.</div>
+        <ul class="muted" style="padding-left:18px;margin:10px 0 0">
+          <li><a href="#">Salary slips</a> · PDF · Logged in</li>
+          <li><a href="#">PAN card</a> · JPG · Received</li>
+        </ul>
+      </section>
+      <section class="card">
+        <h2>Details</h2>
+        <p class="muted" style="margin:0">Assigned to <b style="color:var(--text)">Priya</b> · <a href="#">change</a><br>Opened 3 Nov 2026</p>
+      </section>
+      <a class="btn danger small" href="#drop">Drop this case…</a>
+    </aside>
+  </div>
+</main>
+
+<div class="overlay" id="move"><div class="modal stack">
+  <a class="close" href="#">×</a>
+  <h2>Move to Sanctioned</h2>
+  <label>Sanctioned amount (₹) <input value="45,00,000"></label>
+  <label>Or pick another stage <select><option>Sanctioned</option><option>Documentation</option><option>Disbursed</option><option>Logged in (go back)</option></select></label>
+  <p class="muted">The tracking number box only appears when the stage is "Logged in".</p>
+  <div class="row"><a class="btn primary" href="#">Confirm</a><a class="btn" href="#">Cancel</a></div>
+</div></div>
+
+<div class="overlay" id="upload"><div class="modal stack">
+  <a class="close" href="#">×</a>
+  <h2>Upload a document</h2>
+  <label>What is it? <input placeholder="e.g. Sanction letter"></label>
+  <label>File (PDF, JPG or PNG, up to 10 MB) <input type="file"></label>
+  <div class="row"><a class="btn primary" href="#">Upload</a><a class="btn" href="#">Cancel</a></div>
+</div></div>
+
+<div class="overlay" id="drop"><div class="modal stack">
+  <a class="close" href="#">×</a>
+  <h2>Drop case #1042?</h2>
+  <label>Reason <select><option>Choose a reason</option><option>Customer not interested</option><option>Rate too high</option><option>Other</option></select></label>
+  <label>Remark <input placeholder="Required when the reason is Other"></label>
+  <div class="row"><a class="btn danger" href="#">Drop case</a><a class="btn" href="#">Keep it</a></div>
+</div></div>
+</body></html>

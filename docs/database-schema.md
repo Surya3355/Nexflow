@@ -46,6 +46,7 @@ Used by the session library (`alexedwards/scs`, PostgreSQL store).
 |---|---|---|
 | name | text | unique, not null (HDFC, SBI, and others) |
 | is_active | boolean | default true |
+| part_payments | boolean | default false. The bank pays some loans in parts (HDFC, later private banks; not SBI). Migration 000007 |
 
 ### stages
 Standard stages are rows with `bank_id = null`. A bank with its own stages has rows with its `bank_id`. A bank with none uses the standard rows (spec §5, round 7).
@@ -57,10 +58,14 @@ Standard stages are rows with `bank_id = null`. A bank with its own stages has r
 | sort_order | integer | not null |
 | is_active | boolean | default true |
 | requires_document | boolean | default false. Admin marks a stage that needs documents uploaded (round 11). Rule for "satisfied" is **[open]** |
+| role | text | nullable: `start`, `tracking`, `sanction`, `disbursement`. What the stage does; rules and reports use it, not the code. At most one per role per list (`stages_role_uidx`). Migration 000007 |
+| officer_team | text | nullable: `tdep`, `dovr`, `appraisal`, `fixing`, `officer`. The bank officer team staff pick at this stage. At most one per team per list (`stages_officer_team_uidx`). Migration 000008 |
 
 Constraints: unique `(bank_id, sort_order)` among active rows, and unique `(bank_id, code)`. Because `bank_id` can be null, use `NULLS NOT DISTINCT` (PostgreSQL 15+) or a partial unique index for the standard set. **[open]** PostgreSQL version to confirm.
 
-Standard rows (round 1): Received, Logged in, Under sanction, Sanctioned, Documentation, Disbursed (`disbursed` is the final stage).
+Standard rows (round 1): Received, Logged in, Under sanction, Sanctioned, Documentation, Disbursed (`disbursed` is the final stage). Roles: Received start, Logged in tracking, Sanctioned sanction, Disbursed disbursement.
+
+HDFC list (round 15 task 10, admin applies it to a bank): Received, Link sent (start), Application submitted (tracking), DOVR, Appraisal, Sanctioned (sanction), Upload documents, Under fixing, Fixed, Signing, Disbursement (disbursement).
 
 ### dropdown_values
 Admin-maintained lists, starting with the dropped reasons (round 8).
@@ -72,6 +77,32 @@ Admin-maintained lists, starting with the dropped reasons (round 8).
 | is_active | boolean | default true |
 
 Unique `(category, value)`. Starter `drop_reason` values: Customer not interested; Not eligible; Rejected by bank; Customer chose another bank or DSA; Customer unreachable; Duplicate or already processed; Other.
+
+### projects (round 14, details round 15 migration 000006)
+Builder projects. NA (`is_system`) is the fixed entry for loans without a builder project. Spec `docs/superpowers/specs/2026-11-24-project-details-design.md`.
+| Column | Type | Rules |
+|---|---|---|
+| name | text | not null, unique ignoring case and spaces |
+| is_system | boolean | true only for NA |
+| type | text | nullable. `high_rise`, `apartments`, `plots`, `villas`. NULL for NA and for projects made before round 15 |
+| address | text | not null, default `''` |
+| created_at/by, updated_at/by | | Usual |
+
+NA has no type and no address (CHECK). The app requires type, address and at least one active contact on every save of a non-NA project.
+
+### project_contacts (round 15, migration 000006)
+Each project's own builder contacts. Lists of different projects are independent. Rows are never deleted.
+| Column | Type | Rules |
+|---|---|---|
+| project_id | bigint | not null, FK `projects.id` |
+| name | text | not null, not blank |
+| phone | text | not null, 10 digits |
+| email | text | nullable |
+| label | text | nullable, ≤ 40 characters (e.g. "Sales office") |
+| removed_at | timestamptz | nullable. Set when admin removes the contact from the project |
+| created_at/by, updated_at/by | | Usual |
+
+Unique `(project_id, id)` (target of the lead and case FKs). Unique `(project_id, phone)` among contacts not removed.
 
 ---
 
@@ -112,11 +143,40 @@ A customer that still has cases cannot be hard-deleted (round 1, §10). Enforced
 | interest_type | text | `fixed`, `floating`, nullable |
 | tenure_months | integer | nullable, > 0 |
 | sanction_date | date | nullable |
-| disbursed_amount | numeric(14,2) | nullable. Set at Disbursed |
-| disbursement_date | date | nullable |
+| (disbursed_amount, disbursement_date) | — | **dropped in migration 000007**; payments are in `case_disbursements`. Sanction now also overwrites `loan_amount` with the sanctioned amount |
 | created_at | timestamptz | not null. Used for "cases created today" (round 9) |
+| project_id | bigint | not null, FK `projects.id`. NA for loans without a builder project (round 14) |
+| lead_id | bigint | nullable, unique, FK `leads.id` `ON DELETE SET NULL`. The lead this case came from (round 15) |
+| unit_number | text | nullable, ≤ 20 characters. Flat, villa or plot number, saved in capitals (round 15) |
+| builder_contact_id | bigint | nullable. FK `(project_id, builder_contact_id)` → `project_contacts (project_id, id)`, so it is always a contact of the case's project (round 15) |
 
 Indexes: `customer_id`, `bank_id`, `current_stage_id`, `assignee_id`, `created_at`, `follow_up_date`.
+
+### leads (round 15, migration 000005)
+An enquiry for one builder project, before the customer comes in. Spec `docs/superpowers/specs/2026-11-23-leads-and-case-page-design.md`.
+| Column | Type | Rules |
+|---|---|---|
+| customer_id | bigint | not null, FK `customers.id`, `ON DELETE RESTRICT` |
+| project_id | bigint | not null, FK `projects.id` (NA allowed) |
+| assignee_id | bigint | not null, FK `users.id` |
+| status | text | `open`, `converted`, `dropped` |
+| next_call_date | date | nullable. IST day; drives call due/overdue emails. Set to the day the lead is added; each contact replaces it |
+| dropped_reason_id, dropped_remark, dropped_at, dropped_by | | As on cases. Reason required when dropped |
+| converted_at | timestamptz | nullable. Set when Add case turns the lead into a case |
+| builder_contact_id | bigint | nullable. Same composite FK as on cases (round 15) |
+| created_at/by, updated_at/by | | Usual |
+
+Indexes: `customer_id`; `next_call_date` where open; unique `(customer_id, project_id)` where open (one open lead per project).
+
+### lead_contacts (round 15)
+Contact log. The app only inserts; the archive removes rows with their customer.
+| Column | Type | Rules |
+|---|---|---|
+| lead_id | bigint | not null, FK `leads.id` |
+| response | text | `interested`, `call_back`, `not_reachable`, `not_interested` |
+| remark | text | not null, not blank |
+| next_call_date | date | nullable |
+| created_at, created_by | | When and who |
 
 Milestone dates for reports come from `case_stage_events` (round 2), not from the columns above. The sanction and disbursement columns are the values captured at those stages.
 
@@ -131,8 +191,72 @@ Milestone dates for reports come from `case_stage_events` (round 2), not from th
 | stage_id | bigint | not null, FK `stages.id` |
 | reached_at | timestamptz | not null |
 | changed_by | bigint | not null, FK `users.id` |
+| remark | text | nullable, max 500. Optional note on the move (migration 000007) |
+
+### case_disbursements (round 15 task 10, migration 000007)
+| Column | Type | Rules |
+|---|---|---|
+| case_id | bigint | not null, FK `cases.id` |
+| amount | numeric(14,2) | not null, > 0 |
+| paid_on | date | not null (IST date) |
+| kind | text | `part` or `full`; at most one `full` per case (`case_disbursements_full_uidx`) |
+| created_at/by, updated_at/by | | audit columns |
+
+A Full payment completes the case while it is at its disbursement stage. Remaining = sanctioned amount (else loan amount) − total paid, never below 0. Archived and restored with the case.
 
 Every stage change adds a row, including backward moves (round 8). The current stage is `cases.current_stage_id`. Reports count a case in a period if it has an event in that period (round 2).
+
+### bank_officers (round 15 tasks 6 and 7, migration 000008)
+| Column | Type | Rules |
+|---|---|---|
+| bank_id | bigint | not null, FK `banks.id` |
+| team | text | not null, one of the officer team codes; must be a team of the bank's stages (checked by the service) |
+| name | text | not null, not blank, max 80 |
+| phone | text | nullable, 10 digits |
+| email | text | nullable, max 254, one @. At least one of phone and email (`bank_officers_contact_check`) |
+| removed_at | timestamptz | nullable. Rows are never deleted; removed officers stay on cases |
+| created_at/by, updated_at/by | | audit columns |
+
+Among current officers, one bank and team cannot list the same mobile (`bank_officers_active_phone_uidx`) or the same email, ignoring case (`bank_officers_active_email_uidx`), twice; the same mobile or email in another team is allowed.
+
+### case_officers (round 15 tasks 6 and 7, migration 000008)
+| Column | Type | Rules |
+|---|---|---|
+| case_id | bigint | not null, FK `cases.id` |
+| team | text | not null, officer team code |
+| officer_id | bigint | not null, FK `bank_officers.id`; same bank and team as the case (checked by the service) |
+| picked_at | timestamptz | not null |
+| picked_by | bigint | not null, FK `users.id` |
+
+Append-only: every pick adds a row. The latest row per case and team is the current officer; all rows are the history shown on the case page. Archived and restored with the case.
+
+### case_queries (round 15 tasks 8 and 9, migration 000009)
+| Column | Type | Rules |
+|---|---|---|
+| case_id | bigint | not null, FK `cases.id` |
+| number | integer | not null, > 0; unique per case (`Query <n>`) |
+| body | text | not null, not blank, ≤ 500 characters: what the bank asked |
+| raised_on | date | not null, not in the future (checked by the service) |
+| due_on | date | nullable, not before `raised_on` |
+| assignee_id | bigint | not null, FK `users.id` |
+| status | text | `open`, `sent` (proof sent, waiting for the bank), `resolved` (bank accepted) |
+| removed_at / removed_by | timestamptz / bigint | set when a query added by mistake is removed |
+| created_at/by, updated_at/by | | |
+
+A case cannot move to a later stage while it has a query that is not resolved and not removed. Archived and restored with the case.
+
+### case_query_events (migration 000009)
+| Column | Type | Rules |
+|---|---|---|
+| query_id | bigint | not null, FK `case_queries.id` |
+| kind | text | `raised`, `edited`, `sent`, `accepted`, `rejected`, `proof_removed`, `removed` |
+| note | text | nullable, ≤ 500: the proof note, or the bank's reason on `rejected` |
+| document_id | bigint | nullable, FK `documents.id` **ON DELETE SET NULL**: the proof file (a case document labelled `Query <n> proof`) |
+| file_name | text | nullable, ≤ 255 (migration 000010): the proof file's name, kept so the page can say "File deleted" after the document is purged or removed |
+| at | timestamptz | not null |
+| by_user | bigint | not null, FK `users.id` |
+
+Append-only history of each query. Archived and restored with the case (after documents).
 
 ### case_assignment_events
 | Column | Type | Rules |
@@ -192,6 +316,7 @@ Permanent (round 7). Never purged.
 | details | jsonb | what changed, small and readable |
 
 Index: `(entity_type, entity_id)`, `occurred_at`. Application database role has insert and select only on this table, so history cannot be edited.
+The running app acts as the role `nexflow_app` (`SET ROLE` on every connection, migration 000012): full use of every other table, insert and select only here. Migrations run as the database owner, which must be a member of `nexflow_app` (the migration grants it).
 
 ---
 
@@ -201,13 +326,14 @@ Index: `(entity_type, entity_id)`, `occurred_at`. Application database role has 
 Prevents the same email from being sent twice.
 | Column | Type | Rules |
 |---|---|---|
-| case_id | bigint | not null, FK `cases.id` |
+| case_id | bigint | nullable, FK `cases.id` |
+| lead_id | bigint | nullable, FK `leads.id` (round 15). Exactly one of `case_id`, `lead_id` is set |
 | recipient_user_id | bigint | not null, FK `users.id` |
-| kind | text | `assigned`, `follow_up_due`, `follow_up_overdue` |
+| kind | text | `assigned`, `follow_up_due`, `follow_up_overdue`, `query_due`, `query_overdue` (bank queries, to the query's assignee) |
 | due_on | date | nullable. The follow-up date the alert is for |
 | sent_at | timestamptz | not null |
 
-Unique `(case_id, kind, due_on, recipient_user_id)`.
+Unique `(case_id, kind, due_on, recipient_user_id)` where `case_id` is set, and `(lead_id, kind, due_on, recipient_user_id)` where `lead_id` is set (round 15).
 
 ---
 

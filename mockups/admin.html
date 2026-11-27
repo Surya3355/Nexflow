@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexflow · Admin</title><link rel="stylesheet" href="style.css">
+<style>
+  /* Tabs that switch with :target, no JS. Team shows by default. */
+  .tabpane { display: none; } #team { display: block; }
+  .tabpane:target { display: block; } .tabpane:target ~ #team { display: none; }
+</style></head>
+<body>
+<header class="top">
+  <span class="logo">Nexflow</span>
+  <nav><a href="index.html">Home</a><a href="reports.html">Reports</a><a class="on" href="admin.html">Admin</a></nav>
+  <span class="avatar">P</span>
+</header>
+
+<main class="page stack">
+  <h1>Admin</h1>
+  <p class="mock">The old page was 3 blank forms stacked up, and you could never see the users or banks you already had. Now each tab lists what exists, with an Add button.</p>
+
+  <div class="tabs"><a href="#team">Team</a><a href="#banks">Banks &amp; lists</a><a href="#stages">Stages</a><a href="#archive">Archive</a></div>
+
+  <section class="tabpane" id="banks">
+    <div class="grid2">
+      <div class="card">
+        <div class="row between"><h2 style="margin:0">Banks</h2><a class="btn small primary" href="#">+ Add bank</a></div>
+        <table style="margin-top:10px"><tbody>
+          <tr><td>HDFC</td><td class="muted">Own stages</td><td><a href="#">Edit</a></td></tr>
+          <tr><td>SBI</td><td class="muted">Standard stages</td><td><a href="#">Edit</a></td></tr>
+          <tr><td>ICICI</td><td class="muted">Standard stages</td><td><a href="#">Edit</a></td></tr>
+          <tr><td>Axis</td><td class="muted">Standard stages</td><td><a href="#">Edit</a></td></tr>
+        </tbody></table>
+      </div>
+      <div class="card">
+        <div class="row between"><h2 style="margin:0">Drop reasons</h2><a class="btn small" href="#">+ Add</a></div>
+        <ul style="padding-left:18px;margin:10px 0 0">
+          <li>Customer not interested</li><li>Rate too high</li><li>Not eligible</li><li>Other</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="tabpane" id="stages">
+    <div class="card">
+      <h2>Standard stages</h2>
+      <p class="muted">Tick a stage if a case needs at least one document there. It only shows a warning; it never blocks a move.</p>
+      <table><thead><tr><th>#</th><th>Stage</th><th>Needs documents</th></tr></thead><tbody>
+        <tr><td>1</td><td>Received</td><td><input type="checkbox" style="width:auto"></td></tr>
+        <tr><td>2</td><td>Logged in</td><td><input type="checkbox" style="width:auto"></td></tr>
+        <tr><td>3</td><td>Under sanction</td><td><input type="checkbox" style="width:auto" checked></td></tr>
+        <tr><td>4</td><td>Sanctioned</td><td><input type="checkbox" style="width:auto" checked></td></tr>
+        <tr><td>5</td><td>Documentation</td><td><input type="checkbox" style="width:auto"></td></tr>
+        <tr><td>6</td><td>Disbursed</td><td><input type="checkbox" style="width:auto"></td></tr>
+      </tbody></table>
+    </div>
+  </section>
+
+  <section class="tabpane" id="archive">
+    <div class="card">
+      <h2>Archive</h2>
+      <p class="muted">Dropped and finished records. Removed for good after the date shown.</p>
+      <div class="scroll"><table><thead><tr><th>Record</th><th>Archived</th><th>Deleted on</th><th></th></tr></thead><tbody>
+        <tr><td>Case #0981 · Ravi Kumar</td><td>20 Sep 2026</td><td>20 Sep 2027</td><td><a class="btn small" href="#">Restore…</a></td></tr>
+        <tr><td>Customer · Kiran M</td><td>2 Aug 2026</td><td>2 Aug 2027</td><td><a class="btn small" href="#">Restore…</a></td></tr>
+        <tr><td>Case #0902 · Sunita P</td><td>15 Jul 2026</td><td>—</td><td><span class="badge grey">Restored</span></td></tr>
+      </tbody></table></div>
+    </div>
+  </section>
+
+  <section class="tabpane" id="team">
+    <div class="card">
+      <div class="row between"><h2 style="margin:0">Team</h2><a class="btn small primary" href="#adduser">+ Add person</a></div>
+      <div class="scroll"><table style="margin-top:10px"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Open cases</th><th></th></tr></thead><tbody>
+        <tr><td>Priya Sharma</td><td>priya</td><td><span class="badge">Admin</span></td><td>12</td><td><a href="#">Reset password</a></td></tr>
+        <tr><td>Suresh N</td><td>suresh</td><td><span class="badge grey">Manager</span></td><td>9</td><td><a href="#">Reset password</a></td></tr>
+        <tr><td>Divya K</td><td>divya</td><td><span class="badge grey">Employee</span></td><td>15</td><td><a href="#">Reset password</a></td></tr>
+      </tbody></table></div>
+    </div>
+  </section>
+</main>
+
+<div class="overlay" id="adduser"><div class="modal stack">
+  <a class="close" href="#team">×</a>
+  <h2>Add a person</h2>
+  <label>Full name <input></label>
+  <label>Username <input></label>
+  <label>Role <select><option>Employee</option><option>Manager</option><option>Admin</option></select></label>
+  <label>Email (for case alerts) <input type="email"></label>
+  <label>First password (8+ characters) <input type="password"></label>
+  <div class="row"><a class="btn primary" href="#team">Add</a><a class="btn" href="#team">Cancel</a></div>
+</div></div>
+</body></html>

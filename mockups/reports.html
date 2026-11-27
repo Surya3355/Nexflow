@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexflow · Reports</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header class="top">
+  <span class="logo">Nexflow</span>
+  <nav><a href="index.html">Home</a><a class="on" href="reports.html">Reports</a><a href="admin.html">Admin</a></nav>
+  <span class="avatar">P</span>
+</header>
+
+<main class="page stack">
+  <p class="mock">Merges the old <b>Dashboard</b> and <b>Reports</b> screens. One set of filters drives the tiles, the stage counts and the table.</p>
+
+  <div class="row between">
+    <h1>Reports</h1>
+    <a class="btn" href="#">⬇ Export CSV</a>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Today</span><span class="chip">This week</span><span class="chip on">This month</span><span class="chip">Custom…</span>
+    <span class="chip">All banks ▾</span>
+  </div>
+
+  <div class="tiles">
+    <div class="card tile"><div class="muted">New customers</div><div class="num">34</div><div class="muted">4 today</div></div>
+    <div class="card tile"><div class="muted">New cases</div><div class="num">41</div><div class="muted">5 today</div></div>
+    <div class="card tile"><div class="muted">Sanctioned</div><div class="num">12</div><div class="muted">₹4.6 Cr · 1 dropped since</div></div>
+    <div class="card tile"><div class="muted">Disbursed</div><div class="num">7</div><div class="muted">₹2.9 Cr</div></div>
+  </div>
+
+  <section class="card">
+    <h2>Open cases by stage</h2>
+    <div class="stack" style="font-size:14px">
+      <div><div class="row between"><span>Received</span><b>9</b></div><div class="tracker"><span class="done" style="flex:9"></span><span style="flex:11"></span></div></div>
+      <div><div class="row between"><span>Logged in</span><b>14</b></div><div class="tracker"><span class="done" style="flex:14"></span><span style="flex:6"></span></div></div>
+      <div><div class="row between"><span>Under sanction</span><b>11</b></div><div class="tracker"><span class="done" style="flex:11"></span><span style="flex:9"></span></div></div>
+      <div><div class="row between"><span>Sanctioned</span><b>6</b></div><div class="tracker"><span class="done" style="flex:6"></span><span style="flex:14"></span></div></div>
+      <div><div class="row between"><span>Documentation</span><b>4</b></div><div class="tracker"><span class="done" style="flex:4"></span><span style="flex:16"></span></div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Cases in this period</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Case</th><th>Customer</th><th>Bank</th><th>Stage</th><th>Amount</th><th>Sanctioned</th><th>Assigned</th></tr></thead>
+      <tbody>
+        <tr><td><a href="case.html">#1042</a></td><td>Ravi Kumar</td><td>HDFC</td><td>Under sanction</td><td>₹45,00,000</td><td>—</td><td>Priya</td></tr>
+        <tr><td><a href="case.html">#1038</a></td><td>Lakshmi Reddy</td><td>SBI</td><td>Sanctioned</td><td>₹32,50,000</td><td>16 Nov</td><td>Suresh</td></tr>
+        <tr><td><a href="case.html">#1019</a></td><td>Anitha S</td><td>HDFC</td><td>Disbursed</td><td>₹60,00,000</td><td>4 Nov</td><td>Priya</td></tr>
+        <tr><td><a href="case.html">#1027</a></td><td>Venkat Rao</td><td>Axis</td><td><span class="badge bad">Dropped</span></td><td>₹25,00,000</td><td>1 Nov</td><td>Suresh</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+</main>
+</body></html>

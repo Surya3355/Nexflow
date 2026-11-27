@@ -1,0 +1,94 @@
+# sqlc: typed Go code from SQL (docs/tech-stack.md). The schema is the
+# migrations folder; golang-migrate *.down.sql files are ignored by sqlc.
+# Each module adds one entry under sql: with its queries folder and output
+# package. Generated code is committed; regenerate with `sqlc generate`.
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/access/queries"
+    gen:
+      go:
+        package: "accessdb"
+        out: "modules/access/accessdb"
+        sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/workflows/queries"
+    gen:
+      go:
+        package: "workflowsdb"
+        out: "modules/workflows/workflowsdb"
+        sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/customers/queries"
+    gen:
+      go:
+        package: "customersdb"
+        out: "modules/customers/customersdb"
+        sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/cases/queries"
+    gen:
+      go:
+        package: "casesdb"
+        out: "modules/cases/casesdb"
+        sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/archive/queries"
+    gen:
+      go:
+        package: "archivedb"
+        out: "modules/archive/archivedb"
+        sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/documents/queries"
+    gen:
+      go:
+        package: "documentsdb"
+        out: "modules/documents/documentsdb"
+        sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/reports/queries"
+    gen:
+      go:
+        package: "reportsdb"
+        out: "modules/reports/reportsdb"
+        sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/alerts/queries"
+    gen:
+      go:
+        package: "alertsdb"
+        out: "modules/alerts/alertsdb"
+        sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/leads/queries"
+    gen:
+      go:
+        package: "leadsdb"
+        out: "modules/leads/leadsdb"
+        sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/officers/queries"
+    gen:
+      go:
+        package: "officersdb"
+        out: "modules/officers/officersdb"
+        sql_package: "pgx/v5"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "modules/bankqueries/queries"
+    gen:
+      go:
+        package: "bankqueriesdb"
+        out: "modules/bankqueries/bankqueriesdb"
+        sql_package: "pgx/v5"

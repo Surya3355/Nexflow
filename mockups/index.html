@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexflow · Home</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header class="top">
+  <span class="logo">Nexflow</span>
+  <nav><a class="on" href="index.html">Home</a><a href="reports.html">Reports</a><a href="admin.html">Admin</a></nav>
+  <span class="avatar" title="Priya · Sign out">P</span>
+</header>
+
+<main class="page stack">
+  <p class="mock">Merges the old <b>Search</b>, <b>Cases</b> and <b>New customer</b> screens. Typing in the bar filters the list below. The filters are chips, not a form.</p>
+
+  <div class="row between">
+    <h1>Good morning, Priya</h1>
+    <a class="btn primary" href="#new">+ New customer</a>
+  </div>
+
+  <input class="searchbar" type="search" placeholder="Search name, mobile, tracking number or bank…">
+
+  <div class="chips">
+    <span class="chip on">My cases · 12</span>
+    <span class="chip">All cases · 48</span>
+    <span class="chip">Needs attention · 3</span>
+    <span class="chip">Bank ▾</span>
+    <span class="chip">Stage ▾</span>
+    <span class="chip">Assigned to ▾</span>
+    <span class="chip">Date ▾</span>
+  </div>
+
+  <div class="list">
+    <a class="item" href="case.html">
+      <div><span class="name">Ravi Kumar</span> <span class="muted">· 98480 12345</span>
+        <div class="tracker"><span class="done"></span><span class="done"></span><span class="done"></span><span></span><span></span><span></span></div>
+        <span class="muted">HDFC · Case #1042 · Under sanction for 6 days</span></div>
+      <div class="right"><b>₹45,00,000</b><br><span class="badge warn">No documents</span></div>
+    </a>
+    <a class="item" href="case.html">
+      <div><span class="name">Lakshmi Reddy</span> <span class="muted">· 90000 55512</span>
+        <div class="tracker"><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span></span><span></span></div>
+        <span class="muted">SBI · Case #1038 · Sanctioned 2 days ago</span></div>
+      <div class="right"><b>₹32,50,000</b><br><span class="badge">Sanctioned</span></div>
+    </a>
+    <a class="item" href="case.html">
+      <div><span class="name">Mohammed Imran</span> <span class="muted">· 77020 88990</span>
+        <div class="tracker"><span class="done"></span><span></span><span></span><span></span><span></span><span></span></div>
+        <span class="muted">ICICI · Case #1051 · Received today</span></div>
+      <div class="right"><b>₹18,00,000</b><br><span class="badge grey">Received</span></div>
+    </a>
+    <a class="item" href="case.html">
+      <div><span class="name">Anitha S</span> <span class="muted">· 99887 66554</span>
+        <div class="tracker"><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span></div>
+        <span class="muted">HDFC · Case #1019 · Disbursed 12 Nov</span></div>
+      <div class="right"><b>₹60,00,000</b><br><span class="badge ok">Disbursed</span></div>
+    </a>
+    <a class="item" href="case.html">
+      <div><span class="name">Venkat Rao</span> <span class="muted">· 94400 11223</span>
+        <div class="tracker"><span class="done"></span><span class="done"></span><span></span><span></span><span></span><span></span></div>
+        <span class="muted">Axis · Case #1027 · Dropped: Customer not interested</span></div>
+      <div class="right"><b>₹25,00,000</b><br><span class="badge bad">Dropped</span></div>
+    </a>
+  </div>
+  <p class="muted">Tap a row to open the case. The customer's name opens their page.</p>
+</main>
+
+<!-- New customer + first case in one panel -->
+<div class="overlay" id="new"><div class="panel stack">
+  <a class="close" href="#">×</a>
+  <h2>New customer</h2>
+  <p class="mock">Merges <b>New customer</b> and <b>Open a new case</b> into one step.</p>
+  <label>Name <input placeholder="Full name"></label>
+  <label>Mobile <input placeholder="10 digits" value="98480 12345"></label>
+  <div class="note warn">This mobile already belongs to <a href="customer.html">Ravi Kumar</a>. Open his page instead?</div>
+  <label>Email (optional) <input></label>
+  <h2 style="margin-top:20px">First case</h2>
+  <label>Bank <select><option>Choose a bank</option><option>HDFC</option><option>SBI</option></select></label>
+  <label>Loan amount (₹) <input placeholder="45,00,000"></label>
+  <label>Assigned to <select><option>Priya (me)</option><option>Suresh</option></select></label>
+  <div class="row"><a class="btn primary" href="case.html">Save and open case</a><a class="btn" href="#">Cancel</a></div>
+  <p class="muted">You can leave the case part empty to save just the customer.</p>
+</div></div>
+</body></html>

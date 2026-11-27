@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexflow · Home (desktop)</title><link rel="stylesheet" href="style.css">
+<style>
+  .page.wide { max-width: 1320px; }
+  .layout { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
+  .side { position: sticky; top: 16px; }
+
+  /* Rows become columns on desktop */
+  .crow { display: grid; grid-template-columns: 1.6fr 0.8fr 1.6fr 0.9fr 0.8fr 0.9fr; gap: 14px; align-items: center;
+          padding: 11px 16px; border-top: 1px solid var(--line); color: var(--text); font-size: 14px; }
+  .crow:hover { background: #fafbfc; }
+  .crow.head { border-top: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); padding-top: 10px; padding-bottom: 10px; background: #fafbfc; border-radius: 10px 10px 0 0; }
+  .crow .amt { text-align: right; font-weight: 600; }
+  .crow .tracker { margin: 0 0 3px; }
+  .stat { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+  .stat b { font-size: 16px; }
+  .att { display: block; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; color: var(--text); }
+  .att:first-of-type { border-top: 0; }
+
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 1fr; }
+    .side { position: static; order: -1; }
+    .side .attention { display: none; }        /* on small screens, the "Needs attention" chip does this job */
+  }
+  @media (max-width: 760px) {
+    .crow { grid-template-columns: 1fr auto; gap: 4px 12px; }
+    .crow.head { display: none; }
+    .crow .c-bank, .crow .c-who, .crow .c-when { display: none; }
+    .crow .c-stage { grid-column: 1 / -1; order: 3; }
+    .side .today { display: none; }
+  }
+</style></head>
+<body>
+<header class="top">
+  <span class="logo">Nexflow</span>
+  <nav><a class="on" href="home-wide.html">Home</a><a href="reports.html">Reports</a><a href="admin.html">Admin</a></nav>
+  <span class="avatar">P</span>
+</header>
+
+<main class="page wide stack">
+  <p class="mock">Desktop version of A. The page is wider, rows show as columns, and there's a small "Today" panel on the right. Make the window narrow to see it fold back into the phone layout.</p>
+
+  <div class="row between">
+    <h1>Good morning, Priya</h1>
+    <a class="btn primary" href="index.html#new">+ New customer</a>
+  </div>
+
+  <div class="layout">
+    <div class="stack">
+      <input class="searchbar" type="search" placeholder="Search name, mobile, tracking number or bank…">
+      <div class="chips">
+        <span class="chip on">My cases · 12</span><span class="chip">All cases · 48</span><span class="chip">Needs attention · 3</span>
+        <span class="chip">Bank ▾</span><span class="chip">Stage ▾</span><span class="chip">Assigned to ▾</span><span class="chip">Date ▾</span>
+      </div>
+
+      <div class="list">
+        <div class="crow head"><span>Customer</span><span class="c-bank">Bank</span><span class="c-stage">Stage</span><span class="c-who">Assigned</span><span class="c-when">Updated</span><span class="amt">Amount</span></div>
+
+        <a class="crow" href="case.html"><span><b>Ravi Kumar</b><br><span class="muted">98480 12345 · #1042</span></span><span class="c-bank">HDFC</span>
+          <span class="c-stage"><div class="tracker"><span class="done"></span><span class="done"></span><span class="done"></span><span></span><span></span><span></span></div><span class="muted">Under sanction</span> <span class="badge warn">No docs</span></span>
+          <span class="c-who">Priya</span><span class="c-when muted">6 days ago</span><span class="amt">₹45,00,000</span></a>
+
+        <a class="crow" href="case.html"><span><b>Lakshmi Reddy</b><br><span class="muted">90000 55512 · #1038</span></span><span class="c-bank">SBI</span>
+          <span class="c-stage"><div class="tracker"><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span></span><span></span></div><span class="muted">Sanctioned</span></span>
+          <span class="c-who">Priya</span><span class="c-when muted">2 days ago</span><span class="amt">₹32,50,000</span></a>
+
+        <a class="crow" href="case.html"><span><b>Mohammed Imran</b><br><span class="muted">77020 88990 · #1051</span></span><span class="c-bank">ICICI</span>
+          <span class="c-stage"><div class="tracker"><span class="done"></span><span></span><span></span><span></span><span></span><span></span></div><span class="muted">Received</span></span>
+          <span class="c-who">Priya</span><span class="c-when muted">Today</span><span class="amt">₹18,00,000</span></a>
+
+        <a class="crow" href="case.html"><span><b>Prakash J</b><br><span class="muted">96660 31415 · #1047</span></span><span class="c-bank">HDFC</span>
+          <span class="c-stage"><div class="tracker"><span class="done"></span><span class="done"></span><span></span><span></span><span></span><span></span></div><span class="muted">Logged in</span></span>
+          <span class="c-who">Priya</span><span class="c-when muted">Yesterday</span><span class="amt">₹38,00,000</span></a>
+
+        <a class="crow" href="case.html"><span><b>Farah Khan</b><br><span class="muted">81234 56789 · #1044</span></span><span class="c-bank">Axis</span>
+          <span class="c-stage"><div class="tracker"><span class="done"></span><span class="done"></span><span class="done"></span><span></span><span></span><span></span></div><span class="muted">Under sanction</span></span>
+          <span class="c-who">Priya</span><span class="c-when muted">3 days ago</span><span class="amt">₹29,00,000</span></a>
+
+        <a class="crow" href="case.html"><span><b>Geetha V</b><br><span class="muted">70135 24680 · #1049</span></span><span class="c-bank">SBI</span>
+          <span class="c-stage"><div class="tracker"><span class="done"></span><span></span><span></span><span></span><span></span><span></span></div><span class="muted">Received</span> <span class="badge warn">Waiting 9 days</span></span>
+          <span class="c-who">Priya</span><span class="c-when muted">9 days ago</span><span class="amt">₹22,00,000</span></a>
+
+        <a class="crow" href="case.html"><span><b>Suresh Babu</b><br><span class="muted">98765 43210 · #1033</span></span><span class="c-bank">ICICI</span>
+          <span class="c-stage"><div class="tracker"><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span></span></div><span class="muted">Documentation</span></span>
+          <span class="c-who">Priya</span><span class="c-when muted">4 days ago</span><span class="amt">₹51,00,000</span></a>
+
+        <a class="crow" href="case.html"><span><b>Anitha S</b><br><span class="muted">99887 66554 · #1019</span></span><span class="c-bank">HDFC</span>
+          <span class="c-stage"><div class="tracker"><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span></div><span class="badge ok">Disbursed</span></span>
+          <span class="c-who">Priya</span><span class="c-when muted">12 Nov</span><span class="amt">₹60,00,000</span></a>
+
+        <a class="crow" href="case.html"><span><b>Venkat Rao</b><br><span class="muted">94400 11223 · #1027</span></span><span class="c-bank">Axis</span>
+          <span class="c-stage"><div class="tracker"><span class="done"></span><span class="done"></span><span></span><span></span><span></span><span></span></div><span class="badge bad">Dropped</span> <span class="muted">Not interested</span></span>
+          <span class="c-who">Priya</span><span class="c-when muted">1 Nov</span><span class="amt">₹25,00,000</span></a>
+      </div>
+      <p class="muted">Showing 9 of 12 · <a href="#">Show more</a></p>
+    </div>
+
+    <aside class="side stack">
+      <section class="card today">
+        <h2>Today</h2>
+        <div class="stat"><span>New customers</span><b>4</b></div>
+        <div class="stat"><span>New cases</span><b>5</b></div>
+        <div class="stat"><span>Moved stage</span><b>7</b></div>
+        <div class="stat"><span>Sanctioned this month</span><b>12</b></div>
+        <a href="reports.html" class="muted">Full reports →</a>
+      </section>
+      <section class="card attention">
+        <h2>Needs attention</h2>
+        <a class="att" href="case.html"><b>Ravi Kumar</b><br><span class="muted">Under sanction, no documents</span></a>
+        <a class="att" href="case.html"><b>Geetha V</b><br><span class="muted">Received 9 days ago, not logged in</span></a>
+        <a class="att" href="case.html"><b>Farah Khan</b><br><span class="muted">Assigned to you yesterday</span></a>
+      </section>
+    </aside>
+  </div>
+</main>
+</body></html>

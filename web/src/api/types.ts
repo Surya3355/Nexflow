@@ -1,0 +1,262 @@
+// Shapes returned by the Go API. Money is a decimal string, never a float.
+
+export type Role = "admin" | "manager" | "employee";
+
+export type Case = {
+  id: number;
+  customer_id: number;
+  bank_id: number;
+  project_id: number;
+  loan_amount: string;
+  tracking_number?: string;
+  current_stage_id: number;
+  assignee_id: number;
+  status: "active" | "dropped" | "completed";
+  follow_up_date?: string;
+  created_at: string;
+  warning?: string;
+  /** The lead this case came from, if any. */
+  lead_id?: number | null;
+  /** Flat, villa or plot number. */
+  unit_number?: string | null;
+  /** The project contact staff call about this case (null for NA or none yet). */
+  builder_contact_id?: number | null;
+  /** Filled on a single case (GET /api/cases/{id} and writes), not on lists. */
+  builder_contact?: BuilderContact | null;
+  /** The project's type (null for NA and untyped); single case only. Drives the unit label. */
+  project_type?: ProjectType | null;
+  /** Single case only: the bank pays in parts, and the payments with their totals (spec 2026-11-25 §5.4). */
+  part_payments?: boolean;
+  payments?: Payment[];
+  total_paid?: string;
+  remaining?: string;
+  fully_paid?: boolean;
+  over_paid?: boolean;
+};
+
+export type PaymentKind = "part" | "full";
+/** One disbursement payment; paid_on is YYYY-MM-DD. */
+export type Payment = { id: number; amount: string; paid_on: string; kind: PaymentKind };
+
+/** What a stage does, whatever its name (spec 2026-11-25 §4 A). */
+export type StageRole = "" | "start" | "tracking" | "sanction" | "disbursement";
+
+export type Stage = {
+  id: number;
+  code: string;
+  name: string;
+  sort_order: number;
+  requires_document: boolean;
+  role?: StageRole;
+  /** The bank officer team this stage asks for ("" = none), spec 2026-11-26 §5.1. */
+  officer_team?: string;
+  officer_team_name?: string;
+};
+
+/** One bank officer in one team. */
+export type BankOfficer = {
+  id: number;
+  bank_id: number;
+  bank_name: string;
+  team: string;
+  team_name: string;
+  name: string;
+  /** "" when the officer gave only an email. */
+  phone: string;
+  /** "" when the officer gave only a mobile. */
+  email?: string;
+};
+
+/** A team the case has reached and its officer (null = not set). */
+export type CaseOfficer = {
+  team: string;
+  team_name: string;
+  officer: { id: number; name: string; phone: string; email?: string; removed: boolean } | null;
+};
+
+export type OfficerEvent = { at: string; team: string; team_name: string; officer_name: string; changed_by: string };
+
+export type CaseOfficers = { officers: CaseOfficer[]; history: OfficerEvent[] };
+
+export type StageEvent = {
+  id: number;
+  reached_at: string;
+  stage_code: string;
+  stage_name: string;
+  changed_by: string;
+  remark?: string;
+};
+
+export type Customer = {
+  id: number;
+  name: string;
+  mobile: string;
+  email: string;
+  status: "active" | "dropped";
+  cases?: CaseRow[];
+  leads?: LeadRow[];
+};
+
+export type Bank = { id: number; name: string; has_own_stages?: boolean; part_payments?: boolean; stage_list?: "standard" | "hdfc" };
+/** A builder project. NA (is_system) is the fixed entry for loans without one. */
+export type ProjectType = "high_rise" | "apartments" | "plots" | "villas";
+/** A builder contact of one project. `removed` is set on a lead's or case's contact that admin took off the list. */
+export type BuilderContact = { id: number; name: string; phone: string; email: string; label: string; removed?: boolean };
+export type Project = {
+  id: number; name: string; is_system: boolean; open_cases: number; total_cases: number;
+  type: ProjectType | null; address: string; active_contacts: number;
+  /** Active contacts; only on GET /api/config/projects/{id} and admin saves. */
+  contacts?: BuilderContact[];
+};
+export type DropReason = { id: number; value: string };
+export type StaffUser = { id: number; full_name: string; username: string };
+
+export type SearchGroup = {
+  customer: { id: number; name: string; mobile: string; status: string };
+  cases: Case[];
+  leads?: LeadRow[];
+};
+
+export type LeadStatus = "open" | "converted" | "dropped";
+export type LeadResponse = "interested" | "call_back" | "not_reachable" | "not_interested";
+
+export const responseLabel: Record<LeadResponse, string> = {
+  interested: "Interested",
+  call_back: "Call back later",
+  not_reachable: "Not reachable",
+  not_interested: "Not interested",
+};
+
+/** An enquiry for one project, before the customer comes in (spec 2026-11-23). */
+export type LeadRow = {
+  id: number;
+  customer_id: number;
+  customer_name: string;
+  customer_mobile: string;
+  customer_email: string;
+  project_id: number;
+  project_name: string;
+  assignee_id: number;
+  assignee_name: string;
+  status: LeadStatus;
+  next_call_date: string | null;
+  last_response: LeadResponse | null;
+  last_contact_at: string | null;
+  call_due: boolean;
+  overdue_days: number;
+  created_at: string;
+  converted_at: string | null;
+  case_id: number | null;
+  builder_contact_id?: number | null;
+  builder_contact?: BuilderContact | null;
+};
+
+export type LeadContact = {
+  id: number;
+  response: LeadResponse;
+  remark: string;
+  next_call_date: string | null;
+  created_at: string;
+  created_by: string;
+};
+
+export type DocumentInfo = {
+  id: number;
+  label: string;
+  file_name: string;
+  content_type: string;
+  size_bytes: number;
+  stage_id: number;
+  uploaded_at: string;
+};
+
+/** A row of GET /api/cases: a case with names and stage progress. */
+export type CaseRow = Case & {
+  customer_name: string;
+  customer_mobile: string;
+  bank_name: string;
+  project_name: string;
+  stage_name: string;
+  stage_code: string;
+  stage_order: number;
+  stage_count: number;
+  assignee_name: string;
+  stage_since: string;
+  needs_document: boolean;
+};
+
+/** A case from GET /api/cases/attention with why it needs attention. */
+export type AttentionItem = CaseRow & { reason: string };
+
+/** A user on the admin Team tab. */
+export type TeamMember = {
+  id: number;
+  username: string;
+  full_name: string;
+  role: Role;
+  email: string;
+  is_active: boolean;
+  open_cases: number;
+};
+
+export type StageCount = { count: number; amount: string; dropped: number };
+
+/** GET /api/reports/dashboard. */
+export type StageTotal = {
+  bank_id: number; bank_name: string; stage_id: number; stage_code: string; stage_name: string; sort_order: number; total: number;
+};
+
+export type DashboardData = {
+  new_customers_today: number;
+  new_cases_today: number;
+  new_customers: number;
+  new_cases: number;
+  stage_moves_today: number;
+  /** Open cases per bank and stage, each bank's stages in order. */
+  cases_by_stage: StageTotal[];
+  sanctions: StageCount;
+  disbursements: StageCount;
+};
+
+/** One step of a bank query (spec 2026-11-26 bank queries §5.2). */
+export interface QueryEvent {
+  query_id: number;
+  number: number;
+  body: string;
+  kind: "raised" | "edited" | "sent" | "accepted" | "rejected" | "proof_removed" | "removed";
+  note: string;
+  at: string;
+  by: string;
+  document_id: number | null;
+  /** A proof file was sent with this step but has since been purged or removed. */
+  file_deleted: boolean;
+}
+
+/** A query the bank raised on a case. */
+export interface BankQuery {
+  id: number;
+  number: number;
+  body: string;
+  raised_on: string;
+  due_on: string | null;
+  assignee: { id: number; name: string };
+  status: "open" | "sent" | "resolved";
+  /** What was sent to the bank, while the query waits for the bank's answer. */
+  proof: {
+    note: string;
+    document: { id: number; label: string; file_name: string } | null;
+    /** The file sent is gone (purged or removed); file_name still names it. */
+    file_deleted?: boolean;
+    file_name?: string;
+    at: string;
+    by: string;
+  } | null;
+  events: QueryEvent[];
+}
+
+export interface CaseQueries {
+  queries: BankQuery[];
+  open_count: number;
+  /** Every query event of the case, removed queries included, for the case history. */
+  events: QueryEvent[];
+}

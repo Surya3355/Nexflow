@@ -1,0 +1,540 @@
+package migrations
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/Surya3355/nexflow/backend/internal/platform/testdb"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var schemaTables = []string{
+	"users", "sessions", "banks", "stages", "dropdown_values",
+	"customers", "cases", "case_stage_events", "case_assignment_events",
+	"documents", "archive", "audit_log", "alert_log", "projects", "leads", "lead_contacts", "project_contacts",
+	"case_disbursements",
+}
+
+func tableExists(t *testing.T, pool *pgxpool.Pool, name string) bool {
+	t.Helper()
+	var ok bool
+	err := pool.QueryRow(context.Background(),
+		`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=$1)`,
+		name).Scan(&ok)
+	if err != nil {
+		t.Fatalf("check table %s: %v", name, err)
+	}
+	return ok
+}
+
+func TestMigrateUpCreatesTables(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	for _, name := range schemaTables {
+		if !tableExists(t, pool, name) {
+			t.Errorf("table %s missing after Up", name)
+		}
+	}
+}
+
+func TestMigrateDownThenUpIsClean(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if err := Down(pool); err != nil {
+		t.Fatalf("Down: %v", err)
+	}
+	for _, name := range schemaTables {
+		if tableExists(t, pool, name) {
+			t.Errorf("table %s still present after Down", name)
+		}
+	}
+	if err := Up(pool); err != nil {
+		t.Fatalf("second Up: %v", err)
+	}
+}
+
+func TestStandardStagesSeeded(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	rows, err := pool.Query(context.Background(),
+		`SELECT code, name, bank_id IS NULL, requires_document FROM stages
+		 WHERE bank_id IS NULL ORDER BY sort_order`)
+	if err != nil {
+		t.Fatalf("query stages: %v", err)
+	}
+	defer rows.Close()
+
+	want := []string{"received:Received", "logged_in:Logged in", "under_sanction:Under sanction",
+		"sanctioned:Sanctioned", "documentation:Documentation", "disbursed:Disbursed"}
+	var got []string
+	for rows.Next() {
+		var code, name string
+		var bankNull, requires bool
+		if err := rows.Scan(&code, &name, &bankNull, &requires); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if !bankNull {
+			t.Errorf("stage %s has a bank_id, want null", code)
+		}
+		if requires {
+			t.Errorf("stage %s requires_document = true, want false", code)
+		}
+		got = append(got, code+":"+name)
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("standard stages = %v, want %v", got, want)
+	}
+}
+
+func TestMobileCheckRejectsNonTenDigits(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO customers (name, mobile) VALUES ('Test', '+919876543210')`)
+	if err == nil {
+		t.Fatal("insert with +91 mobile succeeded, want check violation")
+	}
+}
+
+func TestTrackingNumberUniqueAmongLiveCases(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	ctx := context.Background()
+	var userID, bankID, stageID, custA, custB int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO users (username, full_name, password_hash, role)
+		VALUES ('admin', 'Admin', 'x', 'admin') RETURNING id`), &userID)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO banks (name) VALUES ('HDFC') RETURNING id`), &bankID)
+	mustScan(t, pool.QueryRow(ctx, `SELECT id FROM stages WHERE code='received' AND bank_id IS NULL`), &stageID)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO customers (name, mobile) VALUES ('A', '9876543210') RETURNING id`), &custA)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO customers (name, mobile) VALUES ('B', '9876543211') RETURNING id`), &custB)
+
+	insertCase := func(customer int64, tracking *string) error {
+		_, err := pool.Exec(ctx, `INSERT INTO cases
+			(customer_id, bank_id, loan_amount, tracking_number, current_stage_id, assignee_id)
+			VALUES ($1, $2, 1000, $3, $4, $5)`, customer, bankID, tracking, stageID, userID)
+		return err
+	}
+	tn := "12345"
+	if err := insertCase(custA, &tn); err != nil {
+		t.Fatalf("first case with tracking: %v", err)
+	}
+	if err := insertCase(custB, &tn); err == nil {
+		t.Fatal("second live case with same tracking number succeeded, want unique violation")
+	}
+	if err := insertCase(custA, nil); err != nil {
+		t.Fatalf("case without tracking: %v", err)
+	}
+	if err := insertCase(custB, nil); err != nil {
+		t.Fatalf("second case without tracking should be allowed: %v", err)
+	}
+}
+
+func mustScan(t *testing.T, row interface{ Scan(...any) error }, dest ...any) {
+	t.Helper()
+	if err := row.Scan(dest...); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+}
+
+func TestMigration4SetsExistingCasesToNA(t *testing.T) {
+	pool := testdb.New(t)
+	if err := migrateTo(pool, 3); err != nil {
+		t.Fatalf("to 3: %v", err)
+	}
+	ctx := context.Background()
+	var user, bank, customer, caseID int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO users (username, full_name, password_hash, role) VALUES ('u', 'u', 'x', 'admin') RETURNING id`), &user)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO banks (name) VALUES ('HDFC') RETURNING id`), &bank)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO customers (name, mobile) VALUES ('A', '9000000001') RETURNING id`), &customer)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id)
+		VALUES ($1, $2, 100000, (SELECT id FROM stages WHERE code='received' AND bank_id IS NULL), $3) RETURNING id`,
+		customer, bank, user), &caseID)
+
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	var name string
+	var system bool
+	mustScan(t, pool.QueryRow(ctx, `SELECT p.name, p.is_system FROM cases c JOIN projects p ON p.id = c.project_id WHERE c.id = $1`, caseID), &name, &system)
+	if name != "NA" || !system {
+		t.Fatalf("existing case project = %q (system %v), want NA", name, system)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE cases SET project_id = NULL WHERE id = $1`, caseID); err == nil {
+		t.Fatal("project_id accepted NULL, want NOT NULL")
+	}
+}
+
+func TestMigration5BackfillsLeadsForCaselessCustomers(t *testing.T) {
+	pool := testdb.New(t)
+	if err := migrateTo(pool, 4); err != nil {
+		t.Fatalf("to 4: %v", err)
+	}
+	ctx := context.Background()
+	var admin, bank, a, b, c int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO users (username, full_name, password_hash, role) VALUES ('adm', 'Adm', 'x', 'admin') RETURNING id`), &admin)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO banks (name) VALUES ('HDFC') RETURNING id`), &bank)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO customers (name, mobile, created_by) VALUES ('A', '9000000001', $1) RETURNING id`, admin), &a)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO customers (name, mobile) VALUES ('B', '9000000002') RETURNING id`), &b)
+	if _, err := pool.Exec(ctx, `INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id)
+		VALUES ($1, $2, 100000, (SELECT id FROM stages WHERE code='received' AND bank_id IS NULL), $3)`, b, bank, admin); err != nil {
+		t.Fatalf("case: %v", err)
+	}
+	reason := int64(0)
+	mustScan(t, pool.QueryRow(ctx, `SELECT id FROM dropdown_values WHERE category='drop_reason' LIMIT 1`), &reason)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO customers (name, mobile, status, dropped_reason_id, dropped_at) VALUES ('C', '9000000003', 'dropped', $1, now()) RETURNING id`, reason), &c)
+
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	var n int
+	var project string
+	var assignee int64
+	var callIsToday bool
+	mustScan(t, pool.QueryRow(ctx, `SELECT count(*) OVER (), p.name, l.assignee_id,
+		l.next_call_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
+		FROM leads l JOIN projects p ON p.id = l.project_id WHERE l.customer_id = $1 AND l.status = 'open'`, a),
+		&n, &project, &assignee, &callIsToday)
+	if n != 1 || project != "NA" || assignee != admin || !callIsToday {
+		t.Fatalf("lead for A: n=%d project=%q assignee=%d today=%v", n, project, assignee, callIsToday)
+	}
+	for _, id := range []int64{b, c} {
+		var cnt int
+		mustScan(t, pool.QueryRow(ctx, `SELECT count(*) FROM leads WHERE customer_id = $1`, id), &cnt)
+		if cnt != 0 {
+			t.Errorf("customer %d got %d leads, want 0", id, cnt)
+		}
+	}
+}
+
+func TestMigration5OneOpenLeadPerProject(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	ctx := context.Background()
+	var user, cust int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO users (username, full_name, password_hash, role) VALUES ('u', 'u', 'x', 'admin') RETURNING id`), &user)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO customers (name, mobile) VALUES ('A', '9000000001') RETURNING id`), &cust)
+	ins := `INSERT INTO leads (customer_id, project_id, assignee_id) VALUES ($1, na_project_id(), $2)`
+	if _, err := pool.Exec(ctx, ins, cust, user); err != nil {
+		t.Fatalf("first lead: %v", err)
+	}
+	if _, err := pool.Exec(ctx, ins, cust, user); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("second open lead err = %v, want 23505", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO leads (customer_id, project_id, assignee_id, status, dropped_reason_id, dropped_at)
+		VALUES ($1, na_project_id(), $2, 'dropped', (SELECT id FROM dropdown_values WHERE category='drop_reason' LIMIT 1), now())`, cust, user); err != nil {
+		t.Fatalf("dropped lead beside open one: %v", err)
+	}
+}
+
+func TestMigration5AlertNeedsOneTarget(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	ctx := context.Background()
+	var user, bank, cust, caseID, lead int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO users (username, full_name, password_hash, role) VALUES ('u', 'u', 'x', 'admin') RETURNING id`), &user)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO banks (name) VALUES ('HDFC') RETURNING id`), &bank)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO customers (name, mobile) VALUES ('A', '9000000001') RETURNING id`), &cust)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id)
+		VALUES ($1, $2, 100000, (SELECT id FROM stages WHERE code='received' AND bank_id IS NULL), $3) RETURNING id`, cust, bank, user), &caseID)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO leads (customer_id, project_id, assignee_id) VALUES ($1, na_project_id(), $2) RETURNING id`, cust, user), &lead)
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (name) VALUES ('P2')`); err != nil {
+		t.Fatal(err)
+	}
+	ins := `INSERT INTO alert_log (case_id, lead_id, recipient_user_id, kind) VALUES ($1, $2, $3, 'assigned')`
+	if _, err := pool.Exec(ctx, ins, nil, nil, user); err == nil {
+		t.Error("alert with no target accepted")
+	}
+	if _, err := pool.Exec(ctx, ins, caseID, lead, user); err == nil {
+		t.Error("alert with two targets accepted")
+	}
+	if _, err := pool.Exec(ctx, ins, nil, lead, user); err != nil {
+		t.Errorf("lead alert: %v", err)
+	}
+	// A second lead's alert of the same kind for the same user is a different alert.
+	var lead2 int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO leads (customer_id, project_id, assignee_id)
+		VALUES ($1, (SELECT id FROM projects WHERE name = 'P2'), $2) RETURNING id`, cust, user), &lead2)
+	if _, err := pool.Exec(ctx, ins, nil, lead2, user); err != nil {
+		t.Errorf("second lead alert: %v", err)
+	}
+}
+
+// m6Fixture makes a user, bank, customer and two projects A and B.
+func m6Fixture(t *testing.T, pool *pgxpool.Pool) (user, bank, cust, a, b int64) {
+	t.Helper()
+	ctx := context.Background()
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO users (username, full_name, password_hash, role) VALUES ('u', 'u', 'x', 'admin') RETURNING id`), &user)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO banks (name) VALUES ('HDFC') RETURNING id`), &bank)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO customers (name, mobile) VALUES ('A', '9000000001') RETURNING id`), &cust)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO projects (name, type, address) VALUES ('A', 'villas', 'Road 1') RETURNING id`), &a)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO projects (name, type, address) VALUES ('B', 'plots', 'Road 2') RETURNING id`), &b)
+	return
+}
+
+func TestMigration6ContactFromOtherProjectRefused(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	ctx := context.Background()
+	user, bank, cust, a, b := m6Fixture(t, pool)
+	var onB, onA int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO project_contacts (project_id, name, phone) VALUES ($1, 'Ravi', '9876543210') RETURNING id`, b), &onB)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO project_contacts (project_id, name, phone) VALUES ($1, 'Suresh', '9876543211') RETURNING id`, a), &onA)
+	ins := `INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, project_id, builder_contact_id)
+		VALUES ($1, $2, 100000, (SELECT id FROM stages WHERE code='received' AND bank_id IS NULL), $3, $4, $5)`
+	if _, err := pool.Exec(ctx, ins, cust, bank, user, a, onB); err == nil || !strings.Contains(err.Error(), "23503") {
+		t.Fatalf("case with other project's contact err = %v, want 23503", err)
+	}
+	if _, err := pool.Exec(ctx, ins, cust, bank, user, a, onA); err != nil {
+		t.Fatalf("case with own contact: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO leads (customer_id, project_id, assignee_id, builder_contact_id) VALUES ($1, $2, $3, $4)`, cust, a, user, onB); err == nil || !strings.Contains(err.Error(), "23503") {
+		t.Fatalf("lead with other project's contact err = %v, want 23503", err)
+	}
+}
+
+func TestMigration6ActivePhoneUnique(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	ctx := context.Background()
+	_, _, _, a, b := m6Fixture(t, pool)
+	ins := `INSERT INTO project_contacts (project_id, name, phone) VALUES ($1, 'X', '9876543210') RETURNING id`
+	var first, dummy int64
+	mustScan(t, pool.QueryRow(ctx, ins, a), &first)
+	if err := pool.QueryRow(ctx, ins, a).Scan(&dummy); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("same active phone twice err = %v, want 23505", err)
+	}
+	if err := pool.QueryRow(ctx, ins, b).Scan(&dummy); err != nil {
+		t.Fatalf("same phone on other project: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE project_contacts SET removed_at = now() WHERE id = $1`, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, ins, a).Scan(&dummy); err != nil {
+		t.Fatalf("same phone after removal: %v", err)
+	}
+}
+
+func TestMigration6NAHasNoType(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE projects SET type = 'villas' WHERE is_system`); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Fatalf("NA with type err = %v, want 23514", err)
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO projects (name, type) VALUES ('Q', 'flats')`); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Fatalf("type flats err = %v, want 23514", err)
+	}
+}
+
+func TestMigration7RolesAndPayments(t *testing.T) {
+	pool := testdb.New(t)
+	if err := migrateTo(pool, 6); err != nil {
+		t.Fatalf("to 6: %v", err)
+	}
+	ctx := context.Background()
+	user, bank, cust, a, _ := m6Fixture(t, pool)
+	var paid, open int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, project_id, status, disbursed_amount, disbursement_date)
+		VALUES ($1, $2, 600000, (SELECT id FROM stages WHERE code='disbursed' AND bank_id IS NULL), $3, $4, 'completed', 500000, '2026-11-05') RETURNING id`,
+		cust, bank, user, a), &paid)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, project_id)
+		VALUES ($1, $2, 600000, (SELECT id FROM stages WHERE code='received' AND bank_id IS NULL), $3, $4) RETURNING id`,
+		cust, bank, user, a), &open)
+
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	roles := map[string]string{"received": "start", "logged_in": "tracking", "sanctioned": "sanction", "disbursed": "disbursement"}
+	for code, want := range roles {
+		var got string
+		mustScan(t, pool.QueryRow(ctx, `SELECT COALESCE(role, '') FROM stages WHERE bank_id IS NULL AND code = $1`, code), &got)
+		if got != want {
+			t.Errorf("role of %s = %q, want %q", code, got, want)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE stages SET role = 'sanction' WHERE bank_id IS NULL AND code = 'documentation'`); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("second sanction role err = %v, want 23505", err)
+	}
+	var n int
+	var amount, kind, day string
+	mustScan(t, pool.QueryRow(ctx, `SELECT count(*) FROM case_disbursements WHERE case_id = $1`, paid), &n)
+	if n != 1 {
+		t.Fatalf("payments for old disbursed case = %d, want 1", n)
+	}
+	mustScan(t, pool.QueryRow(ctx, `SELECT amount::text, kind, paid_on::text FROM case_disbursements WHERE case_id = $1`, paid), &amount, &kind, &day)
+	if amount != "500000.00" || kind != "full" || day != "2026-11-05" {
+		t.Fatalf("migrated payment = %s %s %s", amount, kind, day)
+	}
+	mustScan(t, pool.QueryRow(ctx, `SELECT count(*) FROM case_disbursements WHERE case_id = $1`, open), &n)
+	if n != 0 {
+		t.Fatalf("payments for open case = %d, want 0", n)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO case_disbursements (case_id, amount, paid_on, kind) VALUES ($1, 100, '2026-11-06', 'full')`, paid); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("second full payment err = %v, want 23505", err)
+	}
+	var partOK bool
+	mustScan(t, pool.QueryRow(ctx, `SELECT part_payments FROM banks WHERE id = $1`, bank), &partOK)
+	if partOK {
+		t.Fatal("part_payments default should be false")
+	}
+	var ev int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO case_stage_events (case_id, stage_id, reached_at, changed_by, remark)
+		VALUES ($1, (SELECT id FROM stages WHERE code='received' AND bank_id IS NULL), now(), $2, 'moved by mistake') RETURNING id`, open, user), &ev)
+	if _, err := pool.Exec(ctx, `UPDATE case_stage_events SET remark = repeat('x', 501) WHERE id = $1`, ev); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Fatalf("501-char remark err = %v, want 23514", err)
+	}
+}
+
+func TestMigration8Officers(t *testing.T) {
+	pool := testdb.New(t)
+	if err := migrateTo(pool, 7); err != nil {
+		t.Fatalf("to 7: %v", err)
+	}
+	ctx := context.Background()
+	_, bank, _, _, _ := m6Fixture(t, pool)
+	// A bank already on HDFC stages before migration 8.
+	for i, code := range []string{"link_sent", "dovr", "appraisal", "under_fixing", "signing"} {
+		if _, err := pool.Exec(ctx, `INSERT INTO stages (bank_id, code, name, sort_order) VALUES ($1, $2, $2, $3)`, bank, code, i+1); err != nil {
+			t.Fatalf("hdfc stage: %v", err)
+		}
+	}
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	var team string
+	mustScan(t, pool.QueryRow(ctx, `SELECT COALESCE(officer_team, '') FROM stages WHERE bank_id IS NULL AND code = 'received'`), &team)
+	if team != "officer" {
+		t.Fatalf("standard received team = %q, want officer", team)
+	}
+	want := map[string]string{"link_sent": "tdep", "dovr": "dovr", "appraisal": "appraisal", "under_fixing": "fixing", "signing": ""}
+	for code, w := range want {
+		mustScan(t, pool.QueryRow(ctx, `SELECT COALESCE(officer_team, '') FROM stages WHERE bank_id = $1 AND code = $2`, bank, code), &team)
+		if team != w {
+			t.Errorf("team of %s = %q, want %q", code, team, w)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE stages SET officer_team = 'officer' WHERE bank_id IS NULL AND code = 'logged_in'`); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("second officer team err = %v, want 23505", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, phone) VALUES ($1, 'dovr', 'Ravi', '12345')`, bank); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Fatalf("short phone err = %v, want 23514", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, phone) VALUES ($1, 'dovr', 'Ravi', '9876543210')`, bank); err != nil {
+		t.Fatalf("officer: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, phone) VALUES ($1, 'dovr', 'Ravi K', '9876543210')`, bank); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("same phone same team err = %v, want 23505", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, phone) VALUES ($1, 'appraisal', 'Ravi', '9876543210')`, bank); err != nil {
+		t.Fatalf("same phone other team: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name) VALUES ($1, 'dovr', 'No contact')`, bank); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Fatalf("officer without mobile or email err = %v, want 23514", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, email) VALUES ($1, 'dovr', 'Mail', 'a@x.example')`, bank); err != nil {
+		t.Fatalf("email only: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_officers (bank_id, team, name, email) VALUES ($1, 'dovr', 'Mail 2', 'A@X.example')`, bank); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Fatalf("same email same team err = %v, want 23505", err)
+	}
+	if err := Down(pool); err != nil {
+		t.Fatalf("Down: %v", err)
+	}
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up again: %v", err)
+	}
+}
+
+func TestMigration9Queries(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	ctx := context.Background()
+	user, bank, cust, a, _ := m6Fixture(t, pool)
+	var caseID, stageID, docID, qID int64
+	mustScan(t, pool.QueryRow(ctx, `SELECT id FROM stages WHERE code='received' AND bank_id IS NULL`), &stageID)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO cases (customer_id, bank_id, loan_amount, current_stage_id, assignee_id, project_id)
+		VALUES ($1, $2, 100000, $3, $4, $5) RETURNING id`, cust, bank, stageID, user, a), &caseID)
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO documents (case_id, stage_id, label, file_name, content_type, size_bytes, storage_key, uploaded_by)
+		VALUES ($1, $2, 'Query 1 proof', 'p.pdf', 'application/pdf', 10, 'k1', $3) RETURNING id`, caseID, stageID, user), &docID)
+	ins := `INSERT INTO case_queries (case_id, number, body, raised_on, due_on, assignee_id, status, created_by, updated_by)
+		VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $6, $6) RETURNING id`
+	mustScan(t, pool.QueryRow(ctx, ins, caseID, 1, "Salary slips", "2026-11-24", "2026-11-25", user, "open"), &qID)
+	for name, args := range map[string][]any{
+		"blank body":   {caseID, 2, "  ", "2026-11-24", nil, user, "open"},
+		"bad status":   {caseID, 2, "x", "2026-11-24", nil, user, "closed"},
+		"due < raised": {caseID, 2, "x", "2026-11-24", "2026-11-23", user, "open"},
+	} {
+		var id int64
+		if err := pool.QueryRow(ctx, ins, args...).Scan(&id); err == nil || !strings.Contains(err.Error(), "23514") {
+			t.Errorf("%s err = %v, want 23514", name, err)
+		}
+	}
+	var dup int64
+	if err := pool.QueryRow(ctx, ins, caseID, 1, "x", "2026-11-24", nil, user, "open").Scan(&dup); err == nil || !strings.Contains(err.Error(), "23505") {
+		t.Errorf("duplicate number err = %v, want 23505", err)
+	}
+	var evID int64
+	mustScan(t, pool.QueryRow(ctx, `INSERT INTO case_query_events (query_id, kind, note, document_id, by_user) VALUES ($1, 'sent', 'sent it', $2, $3) RETURNING id`, qID, docID, user), &evID)
+	if _, err := pool.Exec(ctx, `INSERT INTO case_query_events (query_id, kind, by_user) VALUES ($1, 'closed', $2)`, qID, user); err == nil || !strings.Contains(err.Error(), "23514") {
+		t.Errorf("bad event kind err = %v, want 23514", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM documents WHERE id = $1`, docID); err != nil {
+		t.Fatalf("delete document: %v", err)
+	}
+	var gone bool
+	mustScan(t, pool.QueryRow(ctx, `SELECT document_id IS NULL FROM case_query_events WHERE id = $1`, evID), &gone)
+	if !gone {
+		t.Errorf("event document_id not cleared after document delete")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO alert_log (case_id, recipient_user_id, kind, due_on) VALUES ($1, $2, 'query_due', '2026-11-25')`, caseID, user); err != nil {
+		t.Fatalf("query_due alert: %v", err)
+	}
+	if err := Down(pool); err != nil {
+		t.Fatalf("Down: %v", err)
+	}
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up again: %v", err)
+	}
+}
+
+func TestMigration10ProofFileName(t *testing.T) {
+	pool := testdb.New(t)
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	ctx := context.Background()
+	var n int
+	mustScan(t, pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_name = 'case_query_events' AND column_name = 'file_name'`), &n)
+	if n != 1 {
+		t.Fatalf("case_query_events.file_name columns = %d, want 1", n)
+	}
+	if err := Down(pool); err != nil {
+		t.Fatalf("Down: %v", err)
+	}
+	if err := Up(pool); err != nil {
+		t.Fatalf("Up again: %v", err)
+	}
+}

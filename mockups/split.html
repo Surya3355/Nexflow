@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexflow · Version C · Split view</title><link rel="stylesheet" href="style.css">
+<style>
+  .split { display: grid; grid-template-columns: 340px 1fr; height: calc(100vh - 51px); }
+  .left { border-right: 1px solid var(--line); background: var(--card); display: flex; flex-direction: column; min-height: 0; }
+  .left .head { padding: 12px; border-bottom: 1px solid var(--line); }
+  .left .rows { overflow-y: auto; flex: 1; }
+  .left .item { grid-template-columns: 1fr auto; }
+  .left .item.sel { background: var(--brand-soft); box-shadow: inset 3px 0 0 var(--brand); }
+  .right { overflow-y: auto; padding: 18px; }
+  .casebox { border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .casebox > summary { list-style: none; cursor: pointer; padding: 14px; }
+  .casebox > summary::-webkit-details-marker { display: none; }
+  .casebox .body { border-top: 1px solid var(--line); padding: 14px; }
+  @media (max-width: 760px) {
+    .split { grid-template-columns: 1fr; height: auto; }
+    .left { border-right: 0; } .left .rows { max-height: 260px; }
+  }
+</style></head>
+<body>
+<header class="top">
+  <span class="logo">Nexflow</span>
+  <nav><a class="on" href="split.html">Home</a><a href="reports.html">Reports</a><a href="admin.html">Admin</a></nav>
+  <span class="avatar">P</span>
+</header>
+
+<div class="split">
+  <aside class="left">
+    <div class="head stack">
+      <input type="search" placeholder="Search name, mobile, tracking, bank…">
+      <div class="chips"><span class="chip on">Mine</span><span class="chip">All</span><span class="chip">Needs attention</span><span class="chip">Bank ▾</span></div>
+      <a class="btn primary" href="index.html#new" style="text-align:center">+ New customer</a>
+    </div>
+    <div class="rows">
+      <a class="item sel" href="#"><div><span class="name">Ravi Kumar</span><br><span class="muted">HDFC · Under sanction</span></div><div class="right"><span class="badge warn">!</span></div></a>
+      <a class="item" href="#"><div><span class="name">Lakshmi Reddy</span><br><span class="muted">SBI · Sanctioned</span></div><div class="right"><span class="badge">4/6</span></div></a>
+      <a class="item" href="#"><div><span class="name">Mohammed Imran</span><br><span class="muted">ICICI · Received</span></div><div class="right"><span class="badge grey">New</span></div></a>
+      <a class="item" href="#"><div><span class="name">Anitha S</span><br><span class="muted">HDFC · Disbursed</span></div><div class="right"><span class="badge ok">Done</span></div></a>
+      <a class="item" href="#"><div><span class="name">Venkat Rao</span><br><span class="muted">Axis · Dropped</span></div><div class="right"><span class="badge bad">Dropped</span></div></a>
+    </div>
+  </aside>
+
+  <main class="right stack">
+    <p class="mock"><b>Version C: Split view</b>, like an email inbox. Customers are listed on the left, and the selected customer, with all their cases, shows on the right. This merges <b>Home, Customer and Case</b> into one screen, so the app has 4 screens in total. On a phone, the list sits on top and the details below.</p>
+
+    <div class="row between">
+      <div><h1>Ravi Kumar</h1><p class="muted" style="margin:4px 0 0">📞 98480 12345 · ✉ ravi.k@example.com</p></div>
+      <div class="row"><a class="btn" href="tel:9848012345">Call</a><a class="btn" href="#">Edit</a><a class="btn" href="customer.html#newcase">+ New case</a></div>
+    </div>
+
+    <details class="casebox" open>
+      <summary class="row between">
+        <div><b>HDFC · Case #1042</b> <span class="badge warn">No documents</span><br><span class="muted">Under sanction for 6 days · Tracking HD-88213</span></div>
+        <b>₹45,00,000</b>
+      </summary>
+      <div class="body grid2">
+        <div>
+          <ol class="steps">
+            <li class="done"><span class="dot">✓</span><div>Received <span class="muted">· 3 Nov · Priya</span></div></li>
+            <li class="done"><span class="dot">✓</span><div>Logged in <span class="muted">· 5 Nov · Priya</span></div></li>
+            <li class="now"><span class="dot">3</span><div><b>Under sanction</b> <span class="muted">· since 12 Nov</span></div></li>
+            <li class="todo"><span class="dot">4</span><div>Sanctioned</div></li>
+            <li class="todo"><span class="dot">5</span><div>Documentation</div></li>
+            <li class="todo"><span class="dot">6</span><div>Disbursed</div></li>
+          </ol>
+          <div class="row"><a class="btn primary" href="case.html#move">Move to Sanctioned →</a><a class="btn small" href="case.html#move">Other…</a></div>
+        </div>
+        <div class="stack">
+          <div><div class="row between"><b>Documents</b><a class="btn small" href="case.html#upload">+ Upload</a></div>
+            <ul class="muted" style="padding-left:18px"><li>Salary slips · PDF</li><li>PAN card · JPG</li></ul></div>
+          <p class="muted" style="margin:0">Assigned to <b style="color:var(--text)">Priya</b> · <a href="#">change</a></p>
+          <a class="btn danger small" href="case.html#drop" style="align-self:flex-start">Drop this case…</a>
+        </div>
+      </div>
+    </details>
+
+    <details class="casebox">
+      <summary class="row between">
+        <div><b>Axis · Case #0981</b> <span class="badge bad">Dropped</span><br><span class="muted">Dropped 20 Sep · Rate too high</span></div>
+        <b>₹40,00,000</b>
+      </summary>
+      <div class="body muted">Closed case. History and documents would show here.</div>
+    </details>
+  </main>
+</div>
+</body></html>

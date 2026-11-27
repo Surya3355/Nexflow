@@ -1,0 +1,23 @@
+# Secrets and local configuration. Never commit real values.
+.env
+.env.*
+!.env.example
+
+# Go
+backend/bin/
+backend/tmp/
+
+# Web
+web/node_modules/
+web/dist/
+web/playwright-report/
+web/test-results/
+
+# Local data and backups
+backups/
+uploads/
+*.log
+
+# Local workspace for plan execution and scratch output (never commit).
+.superpowers/
+web/*.tsbuildinfo
