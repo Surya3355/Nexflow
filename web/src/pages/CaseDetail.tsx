@@ -141,8 +141,8 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
 
       <section className={card}>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold [overflow-wrap:anywhere]">
               <Link to={`/customers/${c.customer_id}`} className="text-slate-900 hover:underline">{customer?.name ?? "Customer"}</Link>
             </h1>
             <p className="mt-1 text-base text-slate-500">
@@ -269,7 +269,7 @@ export function CaseDetail({ role = "employee" }: { role?: Role }) {
             </section>
           )}
           {customer && customer.status === "active" && (
-            <button type="button" className={btn} onClick={() => setAddingCase(true)}>+ New case for {customer.name.trim().split(/\s+/)[0]}</button>
+            <button type="button" className={`${btn} max-w-full [overflow-wrap:anywhere]`} onClick={() => setAddingCase(true)}>+ New case for {customer.name.trim().split(/\s+/)[0]}</button>
           )}
           {active && <button type="button" className={btnDanger} onClick={() => setDropping(true)}>Drop this case…</button>}
         </aside>

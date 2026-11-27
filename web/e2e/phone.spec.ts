@@ -97,7 +97,8 @@ for (const path of ["/", "/cases/1042", "/customers/5", "/leads/1", "/reports", 
       return body === undefined ? route.fulfill({ status: 404, json: { error: "not mocked" } }) : route.fulfill({ json: body });
     });
     await page.goto(path);
-    await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+    // On a phone the page links are behind the ☰ menu button.
+    await expect(page.getByRole("button", { name: "Menu" })).toBeVisible();
     await page.waitForLoadState("networkidle");
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -203,5 +204,44 @@ for (const [width, shown, hidden] of [
     await page.goto("/cases/1042");
     await expect(page.getByText(shown)).toBeVisible();
     await expect(page.getByText(hidden)).toBeHidden();
+  });
+}
+
+// Round 16: every page is reachable on a phone through the ☰ menu.
+test("phone menu reaches Reports at 360 px", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.route("**/api/**", (route) => {
+    const body = api[new URL(route.request().url()).pathname];
+    return body === undefined ? route.fulfill({ status: 404, json: { error: "not mocked" } }) : route.fulfill({ json: body });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeHidden();
+  await page.getByRole("button", { name: "Menu" }).click();
+  await page.getByRole("navigation", { name: "Phone menu" }).getByRole("link", { name: "Reports" }).click();
+  await expect(page).toHaveURL(/\/reports$/);
+  await expect(page.getByRole("navigation", { name: "Phone menu" })).toBeHidden();
+});
+
+// Round 16 (QA): a long unbroken customer name wraps instead of scrolling sideways.
+for (const path of ["/cases/1042", "/customers/5", "/leads/1"]) {
+  test(`${path} with a 120-character unbroken name has no horizontal scroll at 360 px`, async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    const longName = "R".repeat(120);
+    const lead = { ...leadRow, customer_name: longName };
+    const routes: Record<string, unknown> = {
+      ...api,
+      "/api/cases/1042": { ...caseRow, customer_name: longName },
+      "/api/customers/5": { ...(api["/api/customers/5"] as object), name: longName, leads: [lead] },
+      "/api/leads/1": { lead, contacts: leadContacts },
+    };
+    await page.route("**/api/**", (route) => {
+      const body = routes[new URL(route.request().url()).pathname];
+      return body === undefined ? route.fulfill({ status: 404, json: { error: "not mocked" } }) : route.fulfill({ json: body });
+    });
+    await page.goto(path);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("RRRR");
+    await page.waitForLoadState("networkidle");
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
   });
 }

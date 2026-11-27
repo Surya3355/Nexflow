@@ -3,30 +3,55 @@ import { NavLink } from "react-router-dom";
 import type { SignedInUser } from "../pages/Login";
 import { menuFor } from "../roles";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
+import { useEscape } from "./Dialog";
 
-/** Logo, the menu for the person's role, and an account menu. */
+const linkClass = ({ isActive }: { isActive: boolean }) =>
+  `whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm ${isActive ? "bg-blue-50 font-semibold text-blue-700" : "text-slate-500 hover:text-slate-900"}`;
+
+/**
+ * Logo, the menu for the person's role, and an account menu. On a phone the
+ * page links are behind a ☰ button, so none sit off-screen (round 16).
+ */
 export function TopBar({ user, onSignOut }: { user: SignedInUser; onSignOut: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [phoneOpen, setPhoneOpen] = useState(false);
   const [changing, setChanging] = useState(false);
   const initial = (user.full_name || user.username).trim().charAt(0).toUpperCase();
+  const items = menuFor(user.role);
+  useEscape(phoneOpen, () => setPhoneOpen(false));
 
   return (
-    <header className="flex items-center gap-4 border-b border-slate-200 bg-white px-4 py-2.5">
+    <header className="relative flex items-center gap-4 border-b border-slate-200 bg-white px-4 py-2.5">
       <span className="font-bold">Nexflow</span>
-      <nav aria-label="Main" className="flex flex-1 gap-1 overflow-x-auto">
-        {menuFor(user.role).map((m) => (
-          <NavLink
-            key={m.to}
-            to={m.to}
-            end={m.to === "/"}
-            className={({ isActive }) =>
-              `whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm ${isActive ? "bg-blue-50 font-semibold text-blue-700" : "text-slate-500 hover:text-slate-900"}`
-            }
-          >
+      <nav aria-label="Main" className="hidden flex-1 gap-1 sm:flex">
+        {items.map((m) => (
+          <NavLink key={m.to} to={m.to} end={m.to === "/"} className={linkClass}>
             {m.label}
           </NavLink>
         ))}
       </nav>
+      <span className="flex-1 sm:hidden" />
+      <button
+        type="button"
+        aria-label="Menu"
+        aria-expanded={phoneOpen}
+        onClick={() => setPhoneOpen((o) => !o)}
+        className="rounded-md px-2 py-1 text-xl leading-none text-slate-600 sm:hidden"
+      >
+        ☰
+      </button>
+      {phoneOpen && (
+        <nav aria-label="Phone menu" className="absolute inset-x-0 top-full z-20 flex flex-col border-b border-slate-200 bg-white px-4 py-2 shadow-lg sm:hidden">
+          {items.map((m) => (
+            <NavLink key={m.to} to={m.to} end={m.to === "/"} className={linkClass} onClick={() => setPhoneOpen(false)}>
+              {m.label}
+            </NavLink>
+          ))}
+          <button type="button" className="rounded-md px-2.5 py-1.5 text-left text-sm text-slate-500" onClick={onSignOut}>
+            Sign out
+          </button>
+        </nav>
+      )}
       <div className="relative">
         <button
           type="button"

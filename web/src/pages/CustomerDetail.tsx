@@ -63,7 +63,7 @@ export function CustomerDetail() {
 
       <section className={`${card} flex flex-wrap items-center justify-between gap-3`}>
         <div>
-          <h1 className="text-2xl font-bold">{customer.name}</h1>
+          <h1 className="text-2xl font-bold [overflow-wrap:anywhere]">{customer.name}</h1>
           <p className={`${muted} mt-1`}>
             {customer.mobile}{customer.email ? ` · ${customer.email}` : ""}
             {!active && <> · <Badge tone="bad">Dropped</Badge></>}

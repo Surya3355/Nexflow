@@ -63,7 +63,7 @@ export function LeadDetail() {
       <section className={card}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold">{lead.customer_name}</h1>
+            <h1 className="text-2xl font-bold [overflow-wrap:anywhere]">{lead.customer_name}</h1>
             <p className="mt-1 text-base text-slate-500">
               <a href={`tel:${lead.customer_mobile}`} className="font-semibold text-blue-700">{lead.customer_mobile}</a>
               {lead.customer_email ? ` · ${lead.customer_email}` : ""}
