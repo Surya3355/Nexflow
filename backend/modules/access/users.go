@@ -57,6 +57,8 @@ type Service struct {
 	rec     history.Recorder
 	clock   func() time.Time
 	unknown *unknownLocks
+	// reassigner moves open work when a user is switched off (deactivate.go).
+	reassigner Reassigner
 }
 
 // NewService returns an access service on pool that writes audit entries to rec.

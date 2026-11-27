@@ -39,3 +39,26 @@ RETURNING locked_until;
 -- name: ClearLoginFailures :exec
 UPDATE users SET failed_logins = 0, locked_until = NULL
 WHERE id = $1 AND (failed_logins <> 0 OR locked_until IS NOT NULL);
+
+-- name: LockUser :one
+SELECT id, role, is_active FROM users WHERE id = $1 FOR UPDATE;
+
+-- name: CountActiveAdminsLocked :one
+-- Locks every active admin row, so two admins can't demote each other at once.
+SELECT count(*)::int FROM (SELECT id FROM users WHERE role = 'admin' AND is_active FOR UPDATE) a;
+
+-- name: CountOpenWork :one
+-- What a user still has open: leads, active cases, and unresolved bank queries
+-- on active cases.
+SELECT
+  (SELECT count(*) FROM leads l WHERE l.assignee_id = sqlc.arg(user_id) AND l.status = 'open')::int AS leads,
+  (SELECT count(*) FROM cases c WHERE c.assignee_id = sqlc.arg(user_id) AND c.status = 'active')::int AS cases,
+  (SELECT count(*) FROM case_queries q JOIN cases c ON c.id = q.case_id
+    WHERE q.assignee_id = sqlc.arg(user_id) AND q.removed_at IS NULL AND q.status <> 'resolved'
+      AND c.status = 'active')::int AS queries;
+
+-- name: SetUserActive :exec
+UPDATE users SET is_active = $2, updated_at = now(), updated_by = $3 WHERE id = $1;
+
+-- name: SetUserRole :exec
+UPDATE users SET role = $2, updated_at = now(), updated_by = $3 WHERE id = $1;

@@ -154,6 +154,71 @@ func (h *handlers) resetPassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *handlers) userOpenWork(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		badID(w)
+		return
+	}
+	work, err := h.d.Access.OpenWork(r.Context(), actor(r), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"leads": work.Leads, "cases": work.Cases, "queries": work.Queries})
+}
+
+func (h *handlers) deactivateUser(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		badID(w)
+		return
+	}
+	var in struct {
+		TakeoverID *int64 `json:"takeover_id"`
+	}
+	if r.ContentLength != 0 && !decode(w, r, &in) {
+		return
+	}
+	if err := h.d.Access.Deactivate(r.Context(), actor(r), id, in.TakeoverID); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handlers) reactivateUser(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		badID(w)
+		return
+	}
+	if err := h.d.Access.Reactivate(r.Context(), actor(r), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handlers) changeUserRole(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		badID(w)
+		return
+	}
+	var in struct {
+		Role string `json:"role"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := h.d.Access.ChangeRole(r.Context(), actor(r), id, access.Role(in.Role)); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *handlers) createBank(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name string `json:"name"`

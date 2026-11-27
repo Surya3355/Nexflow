@@ -76,7 +76,11 @@ func statusFor(err error) int {
 		errors.Is(err, bankqueries.ErrCaseDropped),
 		errors.Is(err, bankqueries.ErrQueryResolved),
 		errors.Is(err, bankqueries.ErrAlreadySent),
-		errors.Is(err, bankqueries.ErrNotSent):
+		errors.Is(err, bankqueries.ErrNotSent),
+		errors.Is(err, access.ErrTakeoverRequired),
+		errors.Is(err, access.ErrTakeoverInvalid),
+		errors.Is(err, access.ErrLastAdmin),
+		errors.Is(err, access.ErrSelfDeactivate):
 		return http.StatusConflict
 	case errors.Is(err, documents.ErrTooLarge):
 		return http.StatusRequestEntityTooLarge

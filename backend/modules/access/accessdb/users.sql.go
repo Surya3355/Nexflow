@@ -21,6 +21,42 @@ func (q *Queries) ClearLoginFailures(ctx context.Context, id int64) error {
 	return err
 }
 
+const countActiveAdminsLocked = `-- name: CountActiveAdminsLocked :one
+SELECT count(*)::int FROM (SELECT id FROM users WHERE role = 'admin' AND is_active FOR UPDATE) a
+`
+
+// Locks every active admin row, so two admins can't demote each other at once.
+func (q *Queries) CountActiveAdminsLocked(ctx context.Context) (int32, error) {
+	row := q.db.QueryRow(ctx, countActiveAdminsLocked)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countOpenWork = `-- name: CountOpenWork :one
+SELECT
+  (SELECT count(*) FROM leads l WHERE l.assignee_id = $1 AND l.status = 'open')::int AS leads,
+  (SELECT count(*) FROM cases c WHERE c.assignee_id = $1 AND c.status = 'active')::int AS cases,
+  (SELECT count(*) FROM case_queries q JOIN cases c ON c.id = q.case_id
+    WHERE q.assignee_id = $1 AND q.removed_at IS NULL AND q.status <> 'resolved'
+      AND c.status = 'active')::int AS queries
+`
+
+type CountOpenWorkRow struct {
+	Leads   int32
+	Cases   int32
+	Queries int32
+}
+
+// What a user still has open: leads, active cases, and unresolved bank queries
+// on active cases.
+func (q *Queries) CountOpenWork(ctx context.Context, userID int64) (CountOpenWorkRow, error) {
+	row := q.db.QueryRow(ctx, countOpenWork, userID)
+	var i CountOpenWorkRow
+	err := row.Scan(&i.Leads, &i.Cases, &i.Queries)
+	return i, err
+}
+
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, username, full_name, password_hash, role, is_active, password_changed_at
 FROM users WHERE id = $1
@@ -212,6 +248,23 @@ func (q *Queries) ListTeam(ctx context.Context) ([]ListTeamRow, error) {
 	return items, nil
 }
 
+const lockUser = `-- name: LockUser :one
+SELECT id, role, is_active FROM users WHERE id = $1 FOR UPDATE
+`
+
+type LockUserRow struct {
+	ID       int64
+	Role     string
+	IsActive bool
+}
+
+func (q *Queries) LockUser(ctx context.Context, id int64) (LockUserRow, error) {
+	row := q.db.QueryRow(ctx, lockUser, id)
+	var i LockUserRow
+	err := row.Scan(&i.ID, &i.Role, &i.IsActive)
+	return i, err
+}
+
 const recordLoginFailure = `-- name: RecordLoginFailure :one
 UPDATE users
 SET failed_logins = CASE WHEN failed_logins + 1 >= $1::int THEN 0 ELSE failed_logins + 1 END,
@@ -233,6 +286,36 @@ func (q *Queries) RecordLoginFailure(ctx context.Context, arg RecordLoginFailure
 	var locked_until pgtype.Timestamptz
 	err := row.Scan(&locked_until)
 	return locked_until, err
+}
+
+const setUserActive = `-- name: SetUserActive :exec
+UPDATE users SET is_active = $2, updated_at = now(), updated_by = $3 WHERE id = $1
+`
+
+type SetUserActiveParams struct {
+	ID        int64
+	IsActive  bool
+	UpdatedBy pgtype.Int8
+}
+
+func (q *Queries) SetUserActive(ctx context.Context, arg SetUserActiveParams) error {
+	_, err := q.db.Exec(ctx, setUserActive, arg.ID, arg.IsActive, arg.UpdatedBy)
+	return err
+}
+
+const setUserRole = `-- name: SetUserRole :exec
+UPDATE users SET role = $2, updated_at = now(), updated_by = $3 WHERE id = $1
+`
+
+type SetUserRoleParams struct {
+	ID        int64
+	Role      string
+	UpdatedBy pgtype.Int8
+}
+
+func (q *Queries) SetUserRole(ctx context.Context, arg SetUserRoleParams) error {
+	_, err := q.db.Exec(ctx, setUserRole, arg.ID, arg.Role, arg.UpdatedBy)
+	return err
 }
 
 const updateUserPassword = `-- name: UpdateUserPassword :exec
