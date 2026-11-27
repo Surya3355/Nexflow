@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Surya3355/nexflow/backend/internal/platform/validate"
 	"strings"
 
 	"github.com/Surya3355/nexflow/backend/modules/access"
@@ -24,6 +25,24 @@ var ErrCustomerNotFound = errors.New("customers: customer not found")
 // ErrNameRequired refuses a customer with an empty name.
 var ErrNameRequired = errors.New("customers: name is required")
 
+// CleanNameEmail trims and checks a customer's name (required, at most
+// validate.MaxName characters) and email (empty or a valid address).
+// Leads use it too, since a new lead creates the customer.
+func CleanNameEmail(name, email string) (string, string, error) {
+	if strings.TrimSpace(name) == "" {
+		return "", "", ErrNameRequired
+	}
+	n, err := validate.RequireName(name, validate.MaxName, "name")
+	if err != nil {
+		return "", "", err
+	}
+	e, err := validate.EmailField(email)
+	if err != nil {
+		return "", "", err
+	}
+	return n, e, nil
+}
+
 // CustomerFields are the editable customer details.
 type CustomerFields struct {
 	Name   string
@@ -41,9 +60,9 @@ func (s *Service) Update(ctx context.Context, actor access.User, customerID int6
 	if err != nil {
 		return Customer{}, err
 	}
-	name := strings.TrimSpace(in.Name)
-	if name == "" {
-		return Customer{}, ErrNameRequired
+	name, email, err := CleanNameEmail(in.Name, in.Email)
+	if err != nil {
+		return Customer{}, err
 	}
 	if _, err := s.q.GetCustomer(ctx, customerID); errors.Is(err, pgx.ErrNoRows) {
 		return Customer{}, ErrCustomerNotFound
@@ -51,7 +70,7 @@ func (s *Service) Update(ctx context.Context, actor access.User, customerID int6
 		return Customer{}, fmt.Errorf("customers: load: %w", err)
 	}
 
-	err = s.q.UpdateCustomerFields(ctx, updateParams(customerID, name, mobile, in.Email, actor.ID))
+	err = s.q.UpdateCustomerFields(ctx, updateParams(customerID, name, mobile, email, actor.ID))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {

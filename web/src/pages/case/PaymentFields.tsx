@@ -1,5 +1,6 @@
 import type { PaymentKind } from "../../api/types";
 import { input, label } from "../../components/ui";
+import { todayIST } from "./BankQueries";
 
 type Props = {
   amount: string;
@@ -29,7 +30,7 @@ export function PaymentFields({ amount, date, kind, partPayments, onAmount, onDa
       )}
       <div className="grid grid-cols-2 gap-3">
         <label className={label}>Amount paid (₹)<input className={input} inputMode="decimal" value={amount} onChange={(e) => onAmount(e.target.value)} /></label>
-        <label className={label}>Payment date<input type="date" className={input} value={date} onChange={(e) => onDate(e.target.value)} /></label>
+        <label className={label}>Payment date<input type="date" className={input} max={todayIST()} value={date} onChange={(e) => onDate(e.target.value)} /></label>
       </div>
     </>
   );

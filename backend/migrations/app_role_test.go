@@ -105,3 +105,32 @@ func TestAppRoleOnExistingDB(t *testing.T) {
 		t.Fatalf("existing customer not readable by the app role")
 	}
 }
+
+func TestBankNameUniqueIgnoringCase(t *testing.T) {
+	owner := testdb.New(t)
+	if err := Up(owner); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := owner.Exec(ctx, `INSERT INTO banks (name) VALUES ('Axis')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `INSERT INTO banks (name) VALUES ('AXIS')`); err == nil {
+		t.Fatal("a bank name differing only in capitals was accepted")
+	}
+}
+
+func TestBankNameMigrationStopsOnDuplicates(t *testing.T) {
+	owner := testdb.New(t)
+	if err := migrateTo(owner, 12); err != nil {
+		t.Fatalf("migrate to 12: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := owner.Exec(ctx, `INSERT INTO banks (name) VALUES ('Axis'), ('axis')`); err != nil {
+		t.Fatal(err)
+	}
+	err := Up(owner)
+	if err == nil || !strings.Contains(err.Error(), "axis") {
+		t.Fatalf("Up with duplicate names: err = %v, want it to name the duplicates", err)
+	}
+}

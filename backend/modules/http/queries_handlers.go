@@ -148,9 +148,7 @@ func (h *handlers) sendQueryProof(w http.ResponseWriter, r *http.Request) {
 		badID(w)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, documents.MaxFileSize+64*1024)
-	if err := r.ParseMultipartForm(1 << 20); err != nil {
-		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "the file is larger than 10 MB"})
+	if !parseUpload(w, r) {
 		return
 	}
 	var file *documents.UploadedFile

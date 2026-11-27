@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Surya3355/nexflow/backend/internal/platform/validate"
 	"strings"
 	"time"
 
@@ -85,6 +86,14 @@ func (s *Service) CreateUser(ctx context.Context, actor User, in NewUser) (User,
 	if len(in.Password) < minPasswordLen {
 		return User{}, ErrWeakPassword
 	}
+	fullName, err := validate.RequireName(in.FullName, validate.MaxName, "name")
+	if err != nil {
+		return User{}, err
+	}
+	email, err := validate.EmailField(in.Email)
+	if err != nil {
+		return User{}, err
+	}
 	hash, err := HashPassword(in.Password)
 	if err != nil {
 		return User{}, err
@@ -92,10 +101,10 @@ func (s *Service) CreateUser(ctx context.Context, actor User, in NewUser) (User,
 
 	row, err := s.q.InsertUser(ctx, accessdb.InsertUserParams{
 		Username:     username,
-		FullName:     in.FullName,
+		FullName:     fullName,
 		PasswordHash: hash,
 		Role:         string(in.Role),
-		Email:        textOrNull(in.Email),
+		Email:        textOrNull(email),
 		CreatedBy:    actorRef(actor.ID),
 		UpdatedBy:    actorRef(actor.ID),
 	})

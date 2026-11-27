@@ -5,6 +5,8 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -173,7 +175,7 @@ func (s *Service) ChangeStage(ctx context.Context, actor access.User, caseID int
 			fullyPaid = full
 			if err := s.audit(txCtx, actor, "case.payment_added", caseID, map[string]any{
 				"amount": m.Payment.Amount, "kind": m.Payment.Kind,
-				"paid_on": istDate(orToday(m.Payment.Date)).Format(time.DateOnly)}); err != nil {
+				"paid_on": s.auditDay(m.Payment.Date)}); err != nil {
 				return Case{}, err
 			}
 		}
@@ -263,9 +265,9 @@ func setSanction(ctx context.Context, q *casesdb.Queries, caseID, actorID int64,
 	if err != nil {
 		return err
 	}
-	rate := pgtype.Numeric{}
-	if err := rate.Scan(d.RatePercent); err != nil {
-		return fmt.Errorf("cases: interest rate: %w", err)
+	rate, err := parseRate(d.RatePercent)
+	if err != nil {
+		return err
 	}
 	var itype pgtype.Text
 	if d.InterestType != "" {
@@ -305,4 +307,30 @@ func textPtr(t pgtype.Text) *string {
 	}
 	s := t.String
 	return &s
+}
+
+// ErrInvalidRate refuses an interest rate that isn't a percentage.
+var ErrInvalidRate = errors.New("cases: enter the interest rate as a percentage, like 8.5")
+
+var ratePattern = regexp.MustCompile(`^[0-9]{1,3}(\.[0-9]{1,2})?$`)
+
+// parseRate reads an interest rate in percent: empty means not given;
+// otherwise more than 0 and at most 100, with at most 2 decimals.
+func parseRate(raw string) (pgtype.Numeric, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return pgtype.Numeric{}, nil
+	}
+	if !ratePattern.MatchString(raw) {
+		return pgtype.Numeric{}, ErrInvalidRate
+	}
+	f, err := strconv.ParseFloat(raw, 64)
+	if err != nil || f <= 0 || f > 100 {
+		return pgtype.Numeric{}, ErrInvalidRate
+	}
+	var n pgtype.Numeric
+	if err := n.Scan(raw); err != nil {
+		return pgtype.Numeric{}, ErrInvalidRate
+	}
+	return n, nil
 }

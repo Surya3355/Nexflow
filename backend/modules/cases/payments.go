@@ -61,9 +61,12 @@ func (s *Service) insertPaymentTx(ctx context.Context, q *casesdb.Queries, actor
 	if state.FullyPaid {
 		return false, ErrAlreadyFullyPaid
 	}
-	day := orToday(p.Date)
+	day, err := s.paymentDay(p.Date)
+	if err != nil {
+		return false, err
+	}
 	if _, err := q.InsertCaseDisbursement(ctx, casesdb.InsertCaseDisbursementParams{
-		CaseID: caseID, Amount: amount, PaidOn: pgtype.Date{Time: istDate(day), Valid: true},
+		CaseID: caseID, Amount: amount, PaidOn: pgtype.Date{Time: day, Valid: true},
 		Kind: p.Kind, CreatedBy: pgtype.Int8{Int64: actor.ID, Valid: true},
 	}); err != nil {
 		if isUniqueViolation(err) {
@@ -144,7 +147,7 @@ func (s *Service) AddPayment(ctx context.Context, actor access.User, caseID int6
 			return err
 		}
 		return s.audit(txCtx, actor, "case.payment_added", caseID, map[string]any{
-			"amount": p.Amount, "kind": p.Kind, "paid_on": istDate(orToday(p.Date)).Format(time.DateOnly)})
+			"amount": p.Amount, "kind": p.Kind, "paid_on": s.auditDay(p.Date)})
 	})
 }
 
@@ -157,6 +160,10 @@ func (s *Service) UpdatePayment(ctx context.Context, actor access.User, caseID, 
 		return Case{}, ErrInvalidPaymentKind
 	}
 	amount, err := parseAmount(p.Amount)
+	if err != nil {
+		return Case{}, err
+	}
+	day, err := s.paymentDay(p.Date)
 	if err != nil {
 		return Case{}, err
 	}
@@ -177,7 +184,6 @@ func (s *Service) UpdatePayment(ctx context.Context, actor access.User, caseID, 
 				return ErrPartNotAllowed
 			}
 		}
-		day := istDate(orToday(p.Date))
 		if err := q.UpdateCasePayment(txCtx, casesdb.UpdateCasePaymentParams{
 			ID: paymentID, CaseID: caseID, Amount: amount, PaidOn: pgtype.Date{Time: day, Valid: true},
 			Kind: p.Kind, UpdatedBy: pgtype.Int8{Int64: actor.ID, Valid: true},
@@ -286,9 +292,27 @@ func paymentDetails(r casesdb.GetCasePaymentRow) map[string]any {
 	return map[string]any{"amount": r.Amount, "kind": r.Kind, "paid_on": r.PaidOn.Time.Format(time.DateOnly)}
 }
 
-func orToday(t time.Time) time.Time {
+// auditDay is the payment date written in the history, as recorded.
+func (s *Service) auditDay(t time.Time) string {
 	if t.IsZero() {
-		return time.Now()
+		return istDate(s.now()).Format(time.DateOnly)
 	}
-	return t
+	return istDate(t).Format(time.DateOnly)
+}
+
+// ErrPaymentDateFuture refuses a payment dated after today (owner, 2026-11-27).
+var ErrPaymentDateFuture = errors.New("cases: payment date can't be in the future")
+
+// paymentDay is the IST date a payment is recorded on: the given date, or
+// today when none is given. A date after today (IST) is refused.
+func (s *Service) paymentDay(t time.Time) (time.Time, error) {
+	today := istDate(s.now())
+	if t.IsZero() {
+		return today, nil
+	}
+	day := istDate(t)
+	if day.After(today) {
+		return time.Time{}, ErrPaymentDateFuture
+	}
+	return day, nil
 }

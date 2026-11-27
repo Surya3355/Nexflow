@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/Surya3355/nexflow/backend/modules/access"
@@ -39,9 +38,9 @@ func (s *Service) Create(ctx context.Context, actor access.User, in NewLead, now
 	if err != nil {
 		return CreateResult{}, err
 	}
-	name := strings.TrimSpace(in.Name)
-	if name == "" {
-		return CreateResult{}, customers.ErrNameRequired
+	name, email, err := customers.CleanNameEmail(in.Name, in.Email)
+	if err != nil {
+		return CreateResult{}, err
 	}
 	if err := s.checkRefs(ctx, s.q, in.ProjectID, in.AssigneeID); err != nil {
 		return CreateResult{}, err
@@ -55,7 +54,6 @@ func (s *Service) Create(ctx context.Context, actor access.User, in NewLead, now
 	q := s.q.WithTx(tx)
 	txCtx := history.WithTx(ctx, tx)
 
-	email := strings.TrimSpace(in.Email)
 	row, err := q.InsertCustomerForLead(txCtx, leadsdb.InsertCustomerForLeadParams{
 		Name: name, Mobile: mobile, Email: pgtype.Text{String: email, Valid: email != ""}, CreatedBy: userRef(actor),
 	})

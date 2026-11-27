@@ -6,9 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
-	"strconv"
-	"strings"
+	"github.com/Surya3355/nexflow/backend/internal/platform/validate"
 	"time"
 
 	"github.com/Surya3355/nexflow/backend/modules/access"
@@ -125,11 +123,12 @@ type Service struct {
 	workflows *workflows.Service
 	rec       history.Recorder
 	notifier  Notifier
+	now       func() time.Time
 }
 
 // NewService returns a cases service on pool.
 func NewService(pool *pgxpool.Pool, wf *workflows.Service, rec history.Recorder) *Service {
-	return &Service{pool: pool, q: casesdb.New(pool), workflows: wf, rec: rec, notifier: nopNotifier{}}
+	return &Service{pool: pool, q: casesdb.New(pool), workflows: wf, rec: rec, notifier: nopNotifier{}, now: time.Now}
 }
 
 // Create opens a case for a customer at the bank's Received stage (or Logged
@@ -340,16 +339,15 @@ func (s *Service) checkProject(ctx context.Context, projectID int64) error {
 	return nil
 }
 
-// parseAmount checks a loan amount typed by staff: a finite number above zero.
+// parseAmount checks an amount typed by staff (spec 2026-11-27-hardening §5):
+// more than 0, at most ₹100 crore, at most 2 decimals. Never rounded.
 func parseAmount(raw string) (pgtype.Numeric, error) {
-	s := strings.TrimSpace(raw)
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f <= 0 {
-		return pgtype.Numeric{}, ErrInvalidAmount
-	}
-	var n pgtype.Numeric
-	if err := n.Scan(s); err != nil {
+	n, ok := validate.Amount(raw)
+	if !ok {
 		return pgtype.Numeric{}, ErrInvalidAmount
 	}
 	return n, nil
 }
+
+// SetClock replaces the clock used for "today". Tests use it.
+func (s *Service) SetClock(now func() time.Time) { s.now = now }

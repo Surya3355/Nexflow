@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Surya3355/nexflow/backend/internal/platform/validate"
 	"strings"
 	"time"
 
@@ -48,6 +49,9 @@ func (s *Service) Drop(ctx context.Context, actor access.User, customerID int64,
 	}
 	if reason.Value == "Other" && strings.TrimSpace(in.Remark) == "" {
 		return Customer{}, ErrRemarkRequired
+	}
+	if _, err := validate.OptionalText(in.Remark, validate.MaxText, "remark"); err != nil {
+		return Customer{}, err
 	}
 
 	tx, err := s.pool.Begin(ctx)

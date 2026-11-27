@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Surya3355/nexflow/backend/internal/platform/validate"
 	"strings"
 	"unicode/utf8"
 
@@ -121,11 +122,10 @@ func clean(name, phone, email string) (contact, error) {
 	return c, nil
 }
 
-// validEmail is a light check: one @ with text on both sides, no spaces.
+// validEmail uses the shared rule: one plain address with a dotted domain.
 func validEmail(e string) bool {
-	at := strings.Index(e, "@")
-	return len(e) <= 254 && at > 0 && at == strings.LastIndex(e, "@") && at < len(e)-1 &&
-		!strings.ContainsAny(e, " \t\r\n")
+	_, ok := validate.Email(e)
+	return ok
 }
 
 func optText(v string) pgtype.Text { return pgtype.Text{String: v, Valid: v != ""} }

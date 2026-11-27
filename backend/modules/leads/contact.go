@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Surya3355/nexflow/backend/internal/platform/validate"
 	"strings"
 	"time"
 
@@ -58,6 +59,9 @@ func (s *Service) LogContactAt(ctx context.Context, actor access.User, leadID in
 	remark := strings.TrimSpace(in.Remark)
 	if remark == "" {
 		return Lead{}, ErrRemarkRequired
+	}
+	if _, err := validate.OptionalText(remark, validate.MaxText, "remark"); err != nil {
+		return Lead{}, err
 	}
 	var next pgtype.Date
 	if in.NextCallDate != nil {

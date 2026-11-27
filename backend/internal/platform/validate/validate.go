@@ -4,6 +4,7 @@
 package validate
 
 import (
+	"fmt"
 	"math/big"
 	"net/mail"
 	"regexp"
@@ -83,4 +84,42 @@ func Amount(s string) (pgtype.Numeric, bool) {
 		return pgtype.Numeric{}, false
 	}
 	return n, true
+}
+
+// Error is a refused input. The API answers it with 400 and its message.
+type Error struct{ Msg string }
+
+func (e *Error) Error() string { return "validate: " + e.Msg }
+
+// Invalid returns an *Error with the message shown to staff.
+func Invalid(format string, args ...any) error { return &Error{Msg: fmt.Sprintf(format, args...)} }
+
+// RequireName is Name with an error that says what is wrong with the field.
+func RequireName(s string, max int, what string) (string, error) {
+	if strings.TrimSpace(s) == "" {
+		return "", Invalid("%s is required", what)
+	}
+	v, ok := Name(s, max)
+	if !ok {
+		return "", Invalid("%s must be %d characters or fewer", what, max)
+	}
+	return v, nil
+}
+
+// OptionalText is Text with an error that names the field.
+func OptionalText(s string, max int, what string) (string, error) {
+	v, ok := Text(s, max)
+	if !ok {
+		return "", Invalid("%s must be %d characters or fewer", what, max)
+	}
+	return v, nil
+}
+
+// EmailField is Email with the error staff see.
+func EmailField(s string) (string, error) {
+	v, ok := Email(s)
+	if !ok {
+		return "", Invalid("enter a valid email, like name@example.com")
+	}
+	return v, nil
 }

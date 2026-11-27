@@ -6,6 +6,7 @@ package apihttp
 import (
 	"encoding/json"
 	"errors"
+	"github.com/Surya3355/nexflow/backend/internal/platform/validate"
 	"log"
 	"net/http"
 
@@ -23,9 +24,12 @@ import (
 // statusFor maps a service error to an HTTP status. Unknown errors are 500
 // and their text is not shown to the client.
 func statusFor(err error) int {
+	var invalid *validate.Error
 	switch {
 	case err == nil:
 		return http.StatusOK
+	case errors.As(err, &invalid):
+		return http.StatusBadRequest
 	case errors.Is(err, access.ErrForbidden):
 		return http.StatusForbidden
 	case errors.Is(err, access.ErrInvalidCredentials):
@@ -35,6 +39,7 @@ func statusFor(err error) int {
 		errors.Is(err, customers.ErrCustomerNotFound),
 		errors.Is(err, archive.ErrNotFound),
 		errors.Is(err, documents.ErrNotFoundDoc),
+		errors.Is(err, documents.ErrCaseNotFound),
 		errors.Is(err, workflows.ErrBankNotFound),
 		errors.Is(err, cases.ErrPaymentNotFound),
 		errors.Is(err, workflows.ErrProjectNotFound),
@@ -77,6 +82,7 @@ func statusFor(err error) int {
 		errors.Is(err, bankqueries.ErrQueryResolved),
 		errors.Is(err, bankqueries.ErrAlreadySent),
 		errors.Is(err, bankqueries.ErrNotSent),
+		errors.Is(err, documents.ErrCaseDropped),
 		errors.Is(err, access.ErrTakeoverRequired),
 		errors.Is(err, access.ErrTakeoverInvalid),
 		errors.Is(err, access.ErrLastAdmin),
@@ -86,6 +92,8 @@ func statusFor(err error) int {
 		return http.StatusRequestEntityTooLarge
 	case errors.Is(err, customers.ErrInvalidMobile),
 		errors.Is(err, cases.ErrInvalidAmount),
+		errors.Is(err, cases.ErrInvalidRate),
+		errors.Is(err, cases.ErrPaymentDateFuture),
 		errors.Is(err, cases.ErrTrackingRequired),
 		errors.Is(err, cases.ErrSanctionAmountRequired),
 		errors.Is(err, cases.ErrRemarkTooLong),

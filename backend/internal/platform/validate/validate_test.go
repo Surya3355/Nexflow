@@ -1,6 +1,7 @@
 package validate
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -79,4 +80,27 @@ func firstN(s string) string {
 		return s[:20]
 	}
 	return s
+}
+
+func TestFieldHelpers(t *testing.T) {
+	if _, err := RequireName("  ", MaxName, "name"); err == nil || err.Error() != "validate: name is required" {
+		t.Errorf("blank name: %v", err)
+	}
+	if _, err := RequireName(strings.Repeat("a", 151), MaxName, "name"); err == nil || err.Error() != "validate: name must be 150 characters or fewer" {
+		t.Errorf("long name: %v", err)
+	}
+	if got, err := RequireName(" Ravi ", MaxName, "name"); err != nil || got != "Ravi" {
+		t.Errorf("good name: %q %v", got, err)
+	}
+	if _, err := OptionalText(strings.Repeat("a", 2001), MaxText, "remark"); err == nil || err.Error() != "validate: remark must be 2000 characters or fewer" {
+		t.Errorf("long remark: %v", err)
+	}
+	if _, err := EmailField("nope"); err == nil || err.Error() != "validate: enter a valid email, like name@example.com" {
+		t.Errorf("bad email: %v", err)
+	}
+	var ve *Error
+	_, err := EmailField("nope")
+	if !errors.As(err, &ve) {
+		t.Error("field errors are not *validate.Error")
+	}
 }

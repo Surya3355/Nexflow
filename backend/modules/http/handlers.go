@@ -1,6 +1,7 @@
 package apihttp
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -1033,9 +1034,7 @@ func (h *handlers) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		badID(w)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, documents.MaxFileSize+64*1024)
-	if err := r.ParseMultipartForm(1 << 20); err != nil {
-		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "the file is larger than 10 MB"})
+	if !parseUpload(w, r) {
 		return
 	}
 	file, header, err := r.FormFile("file")
@@ -1407,4 +1406,23 @@ func (h *handlers) saveProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, projectJSON(p))
+}
+
+// parseUpload reads a multipart upload of at most 10 MB. It answers 413 only
+// when the body is too large, and 400 when it isn't a file upload at all.
+func parseUpload(w http.ResponseWriter, r *http.Request) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, documents.MaxFileSize+64*1024)
+	err := r.ParseMultipartForm(1 << 20)
+	var tooBig *http.MaxBytesError
+	switch {
+	case err == nil:
+		return true
+	case errors.As(err, &tooBig):
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "the file is larger than 10 MB"})
+	case errors.Is(err, http.ErrNotMultipart):
+		badInput(w, "send the file as a file upload")
+	default:
+		badInput(w, "could not read the upload")
+	}
+	return false
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Surya3355/nexflow/backend/internal/platform/validate"
 	"slices"
 	"strings"
 	"time"
@@ -251,11 +252,23 @@ func cleanProject(in ProjectInput) (ProjectInput, error) {
 	case len(in.Contacts) == 0:
 		return out, ErrProjectContactRequired
 	}
+	if _, err := validate.RequireName(out.Name, validate.MaxName, "project name"); err != nil {
+		return out, err
+	}
+	if _, err := validate.OptionalText(out.Address, validate.MaxText, "address"); err != nil {
+		return out, err
+	}
 	seen := map[string]bool{}
 	for _, c := range in.Contacts {
 		cc := ContactInput{ID: c.ID, Name: strings.TrimSpace(c.Name), Email: strings.TrimSpace(c.Email), Label: strings.TrimSpace(c.Label)}
 		if cc.Name == "" {
 			return out, ErrContactNameRequired
+		}
+		if _, err := validate.RequireName(cc.Name, validate.MaxName, "contact name"); err != nil {
+			return out, err
+		}
+		if _, err := validate.EmailField(cc.Email); err != nil {
+			return out, err
 		}
 		if utf8.RuneCountInString(cc.Label) > maxContactLabel {
 			return out, ErrContactLabelTooLong

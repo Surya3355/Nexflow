@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Surya3355/nexflow/backend/internal/platform/validate"
 	"strings"
 	"time"
 
@@ -100,6 +101,9 @@ func (s *Service) dropReason(ctx context.Context, in DropInput) (casesdb.GetDrop
 	}
 	if reason.Value == otherReason && strings.TrimSpace(in.Remark) == "" {
 		return casesdb.GetDropReasonRow{}, ErrRemarkRequired
+	}
+	if _, err := validate.OptionalText(in.Remark, validate.MaxText, "remark"); err != nil {
+		return casesdb.GetDropReasonRow{}, err
 	}
 	return reason, nil
 }

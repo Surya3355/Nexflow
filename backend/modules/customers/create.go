@@ -64,15 +64,15 @@ func (s *Service) Create(ctx context.Context, actor access.User, in NewCustomer)
 	if err != nil {
 		return CreateResult{}, err
 	}
-	name := strings.TrimSpace(in.Name)
-	if name == "" {
-		return CreateResult{}, ErrNameRequired
+	name, email, err := CleanNameEmail(in.Name, in.Email)
+	if err != nil {
+		return CreateResult{}, err
 	}
 
 	row, err := s.q.InsertCustomer(ctx, customersdb.InsertCustomerParams{
 		Name:      name,
 		Mobile:    mobile,
-		Email:     textOrNull(in.Email),
+		Email:     textOrNull(email),
 		CreatedBy: pgtype.Int8{Int64: actor.ID, Valid: true},
 	})
 	if err == nil {

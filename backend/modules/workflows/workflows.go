@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Surya3355/nexflow/backend/internal/platform/validate"
 	"strings"
 
 	"github.com/Surya3355/nexflow/backend/modules/access"
@@ -88,10 +89,18 @@ func (s *Service) CreateBank(ctx context.Context, actor access.User, name string
 	if !access.Can(actor.Role, access.ActionManageConfig) {
 		return Bank{}, access.ErrForbidden
 	}
+	name, err := bankName(name)
+	if err != nil {
+		return Bank{}, err
+	}
 	row, err := s.q.InsertBank(ctx, workflowsdb.InsertBankParams{
 		Name:      name,
 		CreatedBy: pgtype.Int8{Int64: actor.ID, Valid: true},
 	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return Bank{}, ErrBankNameTaken
+	}
 	if err != nil {
 		return Bank{}, fmt.Errorf("workflows: insert bank: %w", err)
 	}
@@ -107,9 +116,9 @@ func (s *Service) RenameBank(ctx context.Context, actor access.User, id int64, n
 	if !access.Can(actor.Role, access.ActionManageConfig) {
 		return Bank{}, access.ErrForbidden
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return Bank{}, ErrBankNameRequired
+	name, err := bankName(name)
+	if err != nil {
+		return Bank{}, err
 	}
 	row, err := s.q.RenameBank(ctx, workflowsdb.RenameBankParams{
 		ID: id, Name: name, UpdatedBy: pgtype.Int8{Int64: actor.ID, Valid: true},
@@ -270,4 +279,14 @@ func (s *Service) StandardStages(ctx context.Context) ([]Stage, error) {
 			SortOrder: int(r.SortOrder), RequiresDocument: r.RequiresDocument, Role: r.Role, OfficerTeam: r.OfficerTeam})
 	}
 	return out, nil
+}
+
+// bankName trims a bank name and checks it: required, at most
+// validate.MaxBankName characters. Uniqueness, ignoring capitals, is the
+// database's index (migration 000013).
+func bankName(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", ErrBankNameRequired
+	}
+	return validate.RequireName(raw, validate.MaxBankName, "bank name")
 }
