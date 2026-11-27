@@ -16,9 +16,22 @@ func TestStoreFileRejectsBadType(t *testing.T) {
 func TestInsertTxPicksFreeLabel(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	first, err := f.svc.Upload(ctx, f.actor, f.caseID, "Query 1 proof", UploadedFile{Name: "a.pdf", Content: samplePDF(100)})
+	// The first proof takes the plain label; it goes in through the proof path,
+	// since normal uploads can't use proof labels.
+	seed, err := f.svc.StoreFile(f.caseID, UploadedFile{Name: "a.pdf", Content: samplePDF(100)})
 	if err != nil {
-		t.Fatalf("Upload: %v", err)
+		t.Fatal(err)
+	}
+	seedTx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := f.svc.InsertTx(ctx, seedTx, f.actor, f.caseID, "Query 1 proof", seed)
+	if err != nil {
+		t.Fatalf("seed proof: %v", err)
+	}
+	if err := seedTx.Commit(ctx); err != nil {
+		t.Fatal(err)
 	}
 	st, err := f.svc.StoreFile(f.caseID, UploadedFile{Name: "b.pdf", Content: samplePDF(120)})
 	if err != nil {
@@ -69,7 +82,7 @@ func TestInsertTxRollbackLeavesNoRow(t *testing.T) {
 func TestDeleteTxRemovesRowAndAudits(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	doc, err := f.svc.Upload(ctx, f.actor, f.caseID, "Query 1 proof", UploadedFile{Name: "a.pdf", Content: samplePDF(100)})
+	doc, err := f.svc.Upload(ctx, f.actor, f.caseID, "Bank statement", UploadedFile{Name: "a.pdf", Content: samplePDF(100)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -120,6 +120,7 @@ func statusFor(err error) int {
 		errors.Is(err, documents.ErrEmpty),
 		errors.Is(err, documents.ErrUnsupportedType),
 		errors.Is(err, documents.ErrLabelRequired),
+		errors.Is(err, documents.ErrReservedLabel),
 		errors.Is(err, workflows.ErrBankNameRequired),
 		errors.Is(err, workflows.ErrProjectNameRequired),
 		errors.Is(err, workflows.ErrProjectTypeRequired),

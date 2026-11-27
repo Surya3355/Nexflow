@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/Surya3355/nexflow/backend/internal/platform/validate"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,6 +24,9 @@ var (
 	ErrCaseNotFound  = errors.New("documents: case not found")
 	ErrCaseDropped   = errors.New("documents: a dropped case takes no new documents")
 	ErrLabelRequired = errors.New("documents: a label is required")
+	// ErrReservedLabel keeps normal uploads off bank-query proof, which is
+	// added and removed only through the query steps (spec 2026-11-27-hardening §6).
+	ErrReservedLabel = errors.New("documents: this name is used for bank query proof; choose another")
 )
 
 // UploadedFile is a file as received from the client.
@@ -67,6 +72,12 @@ func (s *Service) Upload(ctx context.Context, actor access.User, caseID int64, l
 	label = strings.TrimSpace(label)
 	if label == "" {
 		return Document{}, ErrLabelRequired
+	}
+	if isQueryProofLabel(label) {
+		return Document{}, ErrReservedLabel
+	}
+	if _, err := validate.RequireName(label, validate.MaxName, "document name"); err != nil {
+		return Document{}, err
 	}
 	contentType, err := ValidateFile(file.Name, file.Content)
 	if err != nil {
@@ -209,4 +220,13 @@ func (s *Service) ListForCase(ctx context.Context, caseID int64) ([]Document, er
 		})
 	}
 	return out, nil
+}
+
+// queryProofLabel matches the labels bank-query proof gets: "Query 3 proof",
+// or "Query 3 proof 2" when the first was taken (InsertTx).
+var queryProofLabel = regexp.MustCompile(`^query [0-9]+ proof( [0-9]+)?$`)
+
+func isQueryProofLabel(label string) bool {
+	norm := strings.ToLower(strings.Join(strings.Fields(label), " "))
+	return queryProofLabel.MatchString(norm)
 }
