@@ -10,7 +10,7 @@ Needs Docker Desktop (or Docker Engine with the Compose plugin).
 1. Create your settings file and set a secret of 32+ characters:
 
        cp .env.example .env
-       # edit .env: NEXFLOW_LINK_SECRET=some-long-random-text-of-32-chars-or-more
+       # edit .env: NEXFLOW_LINK_SECRET=<output of: openssl rand -hex 32>
 
 2. Start everything (PostgreSQL, API, web app):
 

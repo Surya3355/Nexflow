@@ -34,8 +34,31 @@ func Load() (Config, error) {
 	if len(cfg.LinkSecret) < 32 {
 		return Config{}, fmt.Errorf("config: NEXFLOW_LINK_SECRET must be at least 32 characters")
 	}
+	if weakSecret(cfg.LinkSecret) {
+		return Config{}, fmt.Errorf("config: NEXFLOW_LINK_SECRET is the example value or too simple; make one with: openssl rand -hex 32")
+	}
 	if cfg.UploadDir == "" {
 		cfg.UploadDir = "uploads"
 	}
 	return cfg, nil
+}
+
+// exampleSecret is the placeholder in .env.example. It is public, so a server
+// using it would let anyone sign download links.
+const exampleSecret = "change-me-to-32-or-more-random-characters"
+
+// minSecretVariety is the fewest different characters a link secret may have.
+// Random hex (16 possible digits) clears it easily; repeated text does not.
+const minSecretVariety = 10
+
+// weakSecret reports whether s is the public example value or has too little variety.
+func weakSecret(s []byte) bool {
+	if string(s) == exampleSecret {
+		return true
+	}
+	seen := map[byte]bool{}
+	for _, b := range s {
+		seen[b] = true
+	}
+	return len(seen) < minSecretVariety
 }
